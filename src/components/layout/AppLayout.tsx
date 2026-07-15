@@ -1,0 +1,83 @@
+import { Outlet, useNavigate } from "react-router-dom";
+import AppSidebar from "./AppSidebar";
+import { Bell, Search, Sun, Moon, LogOut, KeyRound } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useTheme } from "@/components/ThemeProvider";
+import { toast } from "sonner";
+
+interface AppLayoutProps {
+  role: "admin" | "parent" | "teacher";
+}
+
+const avatarInitials: Record<string, string> = {
+  admin: "AD",
+  parent: "PA",
+  teacher: "TC",
+};
+
+const AppLayout = ({ role }: AppLayoutProps) => {
+  const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+
+  return (
+    <div className="flex min-h-screen bg-background">
+      <AppSidebar role={role} />
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-10">
+          <div className="relative w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search..." className="pl-10 bg-muted/50 border-0 focus-visible:ring-1" />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" className="relative">
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-full" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Avatar className="w-9 h-9 cursor-pointer">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
+                    {avatarInitials[role]}
+                  </AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={toggleTheme}>
+                  {theme === "light" ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />}
+                  {theme === "light" ? "Dark Mode" : "Light Mode"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => toast.info("Change password feature coming soon")}>
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  Change Password
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { toast.success("Logged out"); navigate("/"); }} className="text-destructive">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+        <main className="flex-1 p-6">
+          <Outlet />
+        </main>
+        <footer className="border-t border-border bg-card/50 px-6 py-3 flex items-center justify-between text-xs text-muted-foreground">
+          <span>© {new Date().getFullYear()} EduManager. All rights reserved.</span>
+          <span>v1.0.0</span>
+        </footer>
+      </div>
+    </div>
+  );
+};
+
+export default AppLayout;
