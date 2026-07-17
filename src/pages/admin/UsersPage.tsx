@@ -1,105 +1,230 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { UserPlus, Search, Eye, Pencil, Trash2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import UserViewModal, { SystemUser } from "@/components/modal/UserViewModal";
-import UserFormModal from "@/components/modal/UserFormModal";
-
-const staffList = [
-  { id: "TCH-001", name: "Jane Njeri", email: "jane@school.com", staffType: "Teaching" },
-  { id: "TCH-002", name: "Peter Ouma", email: "peter@school.com", staffType: "Teaching" },
-  { id: "TCH-003", name: "Sarah Wambui", email: "sarah@school.com", staffType: "Teaching" },
-  { id: "TCH-004", name: "David Kibet", email: "david@school.com", staffType: "Teaching" },
-  { id: "TCH-005", name: "Grace Akinyi", email: "grace@school.com", staffType: "Teaching" },
-  { id: "TCH-006", name: "James Wafula", email: "james@school.com", staffType: "Teaching" },
-  { id: "TCH-007", name: "Mary Chebet", email: "mary@school.com", staffType: "Teaching" },
-  { id: "SUP-001", name: "Samuel Njogu", email: "samuel@school.com", staffType: "Support" },
-];
-
-const availableRoles = ["Super Admin", "Admin", "Finance Officer", "Receptionist", "ICT Support", "Teacher", "Librarian"];
-
-const initialUsers: SystemUser[] = [
-  { id: 1, staffId: "TCH-001", name: "Jane Njeri", email: "jane@school.com", role: "Admin", status: "Active", lastLogin: "2026-04-07" },
-  { id: 2, staffId: "SUP-001", name: "Samuel Njogu", email: "samuel@school.com", role: "ICT Support", status: "Active", lastLogin: "2026-04-06" },
-];
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { UserPlus, Search, Pencil, Trash2, KeyRound } from "lucide-react";
+import { UserApi, RoleApi } from "@/services/api";
+import { useAuth } from "@/context/AuthContext";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
+import Swal from "sweetalert2";
 
 const UsersPage = () => {
-  const { toast } = useToast();
-  const [users, setUsers] = useState<SystemUser[]>(initialUsers);
-  const [search, setSearch] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
-  const [selectedStaffId, setSelectedStaffId] = useState("");
-  const [selectedRole, setSelectedRole] = useState("");
+  const { user: authUser } = useAuth();
+  const roleSectionRef = useRef<HTMLDivElement>(null);
 
-  const filteredUsers = users.filter((u) =>
-    `${u.name} ${u.email} ${u.role} ${u.staffId}`.toLowerCase().includes(search.toLowerCase())
+  const [users, setUsers]             = useState<any[]>([]);
+  const [search, setSearch]           = useState("");
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+
+  // pagination – users table
+  const [currentPage, setCurrentPage]     = useState(1);
+  const [itemsPerPage, setItemsPerPage]   = useState(10);
+
+  // role assignment
+  const [assignedRoles, setAssignedRoles]     = useState<any[]>([]);
+  const [unassignedRoles, setUnassignedRoles] = useState<any[]>([]);
+  const [pickedAssigned, setPickedAssigned]   = useState<string | null>(null);
+  const [pickedUnassigned, setPickedUnassigned] = useState<string | null>(null);
+  const [assignedPage, setAssignedPage]       = useState(1);
+  const [assignedPerPage, setAssignedPerPage] = useState(5);
+  const [unassignedPage, setUnassignedPage]   = useState(1);
+  const [unassignedPerPage, setUnassignedPerPage] = useState(5);
+
+  // permissions panel
+  const [permissions, setPermissions] = useState<any[]>([]);
+  const [permSearch, setPermSearch]   = useState("");
+  const [permPage, setPermPage]       = useState(1);
+  const [permPerPage, setPermPerPage] = useState(10);
+
+  // add/edit modal
+  const [modalOpen, setModalOpen]     = useState(false);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [allRoles, setAllRoles]       = useState<any[]>([]);
+  const [form, setForm] = useState({
+    userName: "", firstName: "", otherNames: "",
+    email: "", phoneNumber: "", profileRef: "", roleUuids: [] as string[],
+  });
+
+  const fetchUsers = async () => {
+    try { setUsers(await UserApi.getAll()); }
+    catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    RoleApi.getAll().then(setAllRoles).catch(() => {});
+  }, []);
+
+  // ── select user ───────────────────────────────────────────────────────────
+  const handleUserSelect = async (user: any) => {
+    if (selectedUser?.userUuid === user.userUuid) { clearSelection(); return; }
+    setSelectedUser(user);
+    setPickedAssigned(null); setPickedUnassigned(null); setPermissions([]);
+    try {
+      const [all, assigned, perms] = await Promise.all([
+        RoleApi.getAll(),
+        UserApi.getAssignedRoles(user.userUuid),
+        UserApi.getEffectivePermissions(user.userUuid),
+      ]);
+      const assignedUuids = new Set(assigned.map((r: any) => r.uuid ?? r.roleUuid));
+      setAssignedRoles(assigned);
+      setUnassignedRoles(all.filter((r: any) => !assignedUuids.has(r.uuid ?? r.roleUuid)));
+      setPermissions(perms);
+      setAssignedPage(1); setUnassignedPage(1); setPermPage(1);
+      setTimeout(() => roleSectionRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  const clearSelection = () => {
+    setSelectedUser(null); setAssignedRoles([]); setUnassignedRoles([]);
+    setPickedAssigned(null); setPickedUnassigned(null);
+    setPermissions([]); setPermSearch("");
+  };
+
+  // ── role assignment ───────────────────────────────────────────────────────
+  const refreshRolesAndPerms = async () => {
+    const [all, assigned, perms] = await Promise.all([
+      RoleApi.getAll(),
+      UserApi.getAssignedRoles(selectedUser.userUuid),
+      UserApi.getEffectivePermissions(selectedUser.userUuid),
+    ]);
+    const assignedUuids = new Set(assigned.map((r: any) => r.uuid ?? r.roleUuid));
+    setAssignedRoles(assigned);
+    setUnassignedRoles(all.filter((r: any) => !assignedUuids.has(r.uuid ?? r.roleUuid)));
+    setPermissions(perms);
+    setPickedAssigned(null); setPickedUnassigned(null);
+    fetchUsers();
+  };
+
+  const assignRole = async () => {
+    if (!pickedUnassigned) return Swal.fire("Warning", "Select a role to assign", "warning");
+    try {
+      await UserApi.assignRoles({ userUuid: selectedUser.userUuid, roleUuids: [pickedUnassigned] });
+      Swal.fire({ icon: "success", title: "Role assigned", timer: 1500, showConfirmButton: false });
+      await refreshRolesAndPerms();
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  const removeRole = async () => {
+    if (!pickedAssigned) return Swal.fire("Warning", "Select a role to remove", "warning");
+    const ok = await Swal.fire({ title: "Remove role?", icon: "warning", showCancelButton: true });
+    if (!ok.isConfirmed) return;
+    try {
+      await UserApi.unassignRoles({ userUuid: selectedUser.userUuid, roleUuids: [pickedAssigned] });
+      Swal.fire({ icon: "success", title: "Role removed", timer: 1500, showConfirmButton: false });
+      await refreshRolesAndPerms();
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  // ── permission overrides ──────────────────────────────────────────────────
+  const handleGrantPerm = async (permUuid: string) => {
+    try {
+      await UserApi.grantPermission({ userUuid: selectedUser.userUuid, permissionUuids: [permUuid] });
+      setPermissions(await UserApi.getEffectivePermissions(selectedUser.userUuid));
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  const handleRevokePerm = async (permUuid: string) => {
+    try {
+      await UserApi.revokePermission({ userUuid: selectedUser.userUuid, permissionUuid: permUuid });
+      setPermissions(await UserApi.getEffectivePermissions(selectedUser.userUuid));
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  // ── toggle / reset / delete ───────────────────────────────────────────────
+  const handleToggleActive = async (user: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (user.userName === authUser?.userName) {
+      Swal.fire("Not Allowed", "You cannot enable/disable your own account.", "warning"); return;
+    }
+    const action = user.active ? "disable" : "enable";
+    const ok = await Swal.fire({
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} user?`,
+      text: `Are you sure you want to ${action} ${user.firstName}?`,
+      icon: "warning", showCancelButton: true, confirmButtonText: `Yes, ${action}!`,
+    });
+    if (!ok.isConfirmed) return;
+    try { await UserApi.toggleStatus(user.userUuid); fetchUsers(); }
+    catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  const handleResetPassword = async (user: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user.active) { Swal.fire("Not Allowed", "Enable the account before resetting password.", "warning"); return; }
+    const ok = await Swal.fire({ title: "Reset password?", text: "A temporary password will be generated.", icon: "warning", showCancelButton: true, confirmButtonText: "Yes, reset!" });
+    if (!ok.isConfirmed) return;
+    try {
+      await UserApi.adminResetPassword(user.userUuid);
+      Swal.fire({ icon: "success", title: "Password reset", timer: 2000, showConfirmButton: false });
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  const handleDelete = async (user: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = await Swal.fire({ title: "Delete user?", text: `Delete ${user.firstName}?`, icon: "warning", showCancelButton: true, confirmButtonColor: "#d33" });
+    if (!ok.isConfirmed) return;
+    try {
+      await UserApi.delete(user.userUuid);
+      if (selectedUser?.userUuid === user.userUuid) clearSelection();
+      fetchUsers();
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  // ── add / edit modal ──────────────────────────────────────────────────────
+  const openAdd = () => {
+    setEditingUser(null);
+    setForm({ userName: "", firstName: "", otherNames: "", email: "", phoneNumber: "", profileRef: "", roleUuids: [] });
+    setModalOpen(true);
+  };
+
+  const openEdit = (user: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingUser(user);
+    setForm({ userName: user.userName ?? "", firstName: user.firstName ?? "", otherNames: user.otherNames ?? "", email: user.email ?? "", phoneNumber: user.phoneNumber ?? "", profileRef: user.profileRef ?? "", roleUuids: [] });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.userName || !form.firstName || !form.email) {
+      Swal.fire("Validation", "Username, first name and email are required.", "warning"); return;
+    }
+    try {
+      if (editingUser) {
+        await UserApi.update(editingUser.userUuid, form);
+        Swal.fire({ icon: "success", title: "User updated", timer: 1500, showConfirmButton: false });
+      } else {
+        await UserApi.create(form);
+        Swal.fire({ icon: "success", title: "User created", timer: 1500, showConfirmButton: false });
+      }
+      setModalOpen(false); fetchUsers();
+    } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+  };
+
+  // ── pagination helpers ────────────────────────────────────────────────────
+  const filtered = users.filter(u =>
+    `${u.firstName} ${u.otherNames} ${u.email} ${u.userName}`.toLowerCase().includes(search.toLowerCase())
   );
+  const totalPages  = Math.ceil(filtered.length / itemsPerPage);
+  const pagedUsers  = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const availableStaff = staffList.filter((s) => !users.some((u) => u.staffId === s.id));
+  const totalAssignedPages   = Math.ceil(assignedRoles.length / assignedPerPage);
+  const pagedAssigned        = assignedRoles.slice((assignedPage - 1) * assignedPerPage, assignedPage * assignedPerPage);
+  const totalUnassignedPages = Math.ceil(unassignedRoles.length / unassignedPerPage);
+  const pagedUnassigned      = unassignedRoles.slice((unassignedPage - 1) * unassignedPerPage, unassignedPage * unassignedPerPage);
 
-  const handleOpenAdd = () => {
-    setSelectedStaffId("");
-    setSelectedRole("");
-    setIsEditing(false);
-    setSelectedUser(null);
-    setDialogOpen(true);
-  };
+  const filteredPerms  = permissions.filter(p => permSearch.trim() === "" || (p.name ?? "").toLowerCase().includes(permSearch.toLowerCase()));
+  const totalPermPages = Math.ceil(filteredPerms.length / permPerPage);
+  const pagedPerms     = filteredPerms.slice((permPage - 1) * permPerPage, permPage * permPerPage);
 
-  const handleView = (u: SystemUser) => {
-    setSelectedUser(u);
-    setViewDialogOpen(true);
-  };
-
-  const handleEdit = (u: SystemUser) => {
-    setSelectedUser(u);
-    setSelectedStaffId(u.staffId);
-    setSelectedRole(u.role);
-    setIsEditing(true);
-    setDialogOpen(true);
-  };
-
-  const handleDelete = (u: SystemUser) => {
-    setUsers((prev) => prev.filter((x) => x.id !== u.id));
-    toast({ title: "User removed", description: `${u.name} has been removed from system users.` });
-  };
-
-  const handleSubmit = () => {
-    if (!isEditing && !selectedStaffId) {
-      toast({ title: "Select staff", description: "Please select a staff member.", variant: "destructive" });
-      return;
-    }
-    if (isEditing && selectedUser) {
-      setUsers((prev) => prev.map((u) => u.id === selectedUser.id ? { ...u, role: selectedRole } : u));
-      toast({ title: "User updated", description: `${selectedUser.name}'s role has been updated.` });
-    } else {
-      const staff = staffList.find((s) => s.id === selectedStaffId);
-      if (!staff) return;
-      const newUser: SystemUser = {
-        id: Date.now(),
-        staffId: staff.id,
-        name: staff.name,
-        email: staff.email,
-        role: selectedRole,
-        status: "Active",
-        lastLogin: "—",
-      };
-      setUsers((prev) => [...prev, newUser]);
-      toast({ title: "User added", description: `${staff.name} has been added as a system user.` });
-    }
-    setDialogOpen(false);
-  };
-
-  const handleStatusChange = (u: SystemUser, status: string) => {
-    setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, status } : x));
-    setSelectedUser((prev) => prev?.id === u.id ? { ...prev, status } : prev);
-    toast({ title: "Status updated", description: `${u.name} is now ${status}.` });
+  const overrideBadge = (type: string) => {
+    if (type === "GRANT")  return <Badge className="text-[10px] bg-green-100 text-green-700 hover:bg-green-100">GRANT</Badge>;
+    if (type === "REVOKE") return <Badge className="text-[10px] bg-red-100 text-red-700 hover:bg-red-100">REVOKE</Badge>;
+    return <Badge variant="outline" className="text-[10px]">INHERITED</Badge>;
   };
 
   return (
@@ -109,9 +234,10 @@ const UsersPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Users</h1>
           <p className="text-muted-foreground">Manage system users and their access</p>
         </div>
-        <Button size="sm" onClick={handleOpenAdd}><UserPlus className="w-4 h-4 mr-1" /> Add User</Button>
+        <Button size="sm" onClick={openAdd}><UserPlus className="w-4 h-4 mr-1" /> Add User</Button>
       </div>
 
+      {/* ── Users table ── */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -121,7 +247,8 @@ const UsersPage = () => {
             </div>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search users..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="Search users..." className="pl-9" value={search}
+                onChange={e => { setSearch(e.target.value); setCurrentPage(1); }} />
             </div>
           </div>
         </CardHeader>
@@ -129,41 +256,50 @@ const UsersPage = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Staff ID</TableHead>
-                <TableHead>Name</TableHead>
+                <TableHead>First Name</TableHead>
+                <TableHead>Other Names</TableHead>
+                <TableHead>Username</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Roles</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Last Login</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-mono text-xs">{u.staffId}</TableCell>
-                  <TableCell className="font-medium">{u.name}</TableCell>
+              {pagedUsers.length === 0 ? (
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">No users found</TableCell></TableRow>
+              ) : pagedUsers.map(u => (
+                <TableRow key={u.userUuid} onClick={() => handleUserSelect(u)}
+                  className={`cursor-pointer hover:bg-muted ${selectedUser?.userUuid === u.userUuid ? "bg-muted" : ""}`}>
+                  <TableCell className="font-medium">{u.firstName}</TableCell>
+                  <TableCell>{u.otherNames}</TableCell>
+                  <TableCell className="font-mono text-xs">{u.userName}</TableCell>
                   <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
+                  <TableCell className="text-sm">{u.phoneNumber}</TableCell>
                   <TableCell>
-                    {u.role ? (
-                      <Badge variant="outline" className="text-xs">{u.role}</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Not assigned</span>
-                    )}
+                    {(u.roles ?? []).length > 0
+                      ? (u.roles as string[]).map((r: string) => <Badge key={r} variant="outline" className="text-xs mr-1">{r}</Badge>)
+                      : <span className="text-xs text-muted-foreground">None</span>}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={u.status === "Active" ? "default" : "secondary"} className="text-[10px]">{u.status}</Badge>
+                    <Badge variant={u.active ? "default" : "secondary"} className="text-[10px]">
+                      {u.active ? "Active" : "Inactive"}
+                    </Badge>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{u.lastLogin}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleView(u)}>
-                        <Eye className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(u)}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={e => openEdit(u, e)}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(u)}>
+                      <button onClick={e => handleToggleActive(u, e)}
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-full border-0 cursor-pointer ${u.active ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-green-100 text-green-700 hover:bg-green-200"}`}>
+                        {u.active ? "Disable" : "Enable"}
+                      </button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset Password" onClick={e => handleResetPassword(u, e)}>
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={e => handleDelete(u, e)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -172,32 +308,171 @@ const UsersPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage} onItemsPerPageChange={v => { setItemsPerPage(v); setCurrentPage(1); }} />
         </CardContent>
       </Card>
 
-      <UserViewModal
-        open={viewDialogOpen}
-        onOpenChange={setViewDialogOpen}
-        user={selectedUser}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onStatusChange={handleStatusChange}
-      />
+      {selectedUser && (
+        <div ref={roleSectionRef} className="space-y-6">
 
-      <UserFormModal
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        isEditing={isEditing}
-        availableStaff={availableStaff}
-        editingUserName={selectedUser?.name}
-        editingUserStaffId={selectedUser?.staffId}
-        staffId={selectedStaffId}
-        onStaffIdChange={setSelectedStaffId}
-        role={selectedRole}
-        onRoleChange={setSelectedRole}
-        availableRoles={availableRoles}
-        onSubmit={handleSubmit}
-      />
+          {/* ── Manage Roles ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex justify-between items-center">
+                Manage Roles — {selectedUser.firstName} {selectedUser.otherNames}
+                <Button variant="outline" size="sm" onClick={clearSelection}>Clear</Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4">
+                {/* Available */}
+                <div>
+                  <h5 className="font-semibold mb-2 text-sm">Available Roles</h5>
+                  <ul className="border rounded divide-y min-h-[60px]">
+                    {pagedUnassigned.length === 0
+                      ? <li className="p-2 text-sm text-muted-foreground">No roles</li>
+                      : pagedUnassigned.map(r => (
+                        <li key={r.uuid ?? r.roleUuid}
+                          onClick={() => { setPickedUnassigned(r.uuid ?? r.roleUuid); setPickedAssigned(null); }}
+                          className={`p-2 text-sm cursor-pointer hover:bg-muted ${pickedUnassigned === (r.uuid ?? r.roleUuid) ? "bg-blue-50 border-l-4 border-blue-500" : ""}`}>
+                          {r.name ?? r.roleName}
+                        </li>
+                      ))}
+                  </ul>
+                  <Pagination currentPage={unassignedPage} totalPages={totalUnassignedPages} onPageChange={setUnassignedPage}
+                    itemsPerPage={unassignedPerPage} onItemsPerPageChange={v => { setUnassignedPerPage(v); setUnassignedPage(1); }} />
+                </div>
+                {/* Arrows */}
+                <div className="flex flex-col justify-center items-center gap-2">
+                  <Button onClick={assignRole} disabled={!pickedUnassigned} className="bg-green-600 hover:bg-green-700 w-full">
+                    Assign &gt;&gt;
+                  </Button>
+                  <Button onClick={removeRole} disabled={!pickedAssigned} variant="destructive" className="w-full">
+                    &lt;&lt; Remove
+                  </Button>
+                </div>
+                {/* Assigned */}
+                <div>
+                  <h5 className="font-semibold mb-2 text-sm">Assigned Roles</h5>
+                  <ul className="border rounded divide-y min-h-[60px]">
+                    {pagedAssigned.length === 0
+                      ? <li className="p-2 text-sm text-muted-foreground">No roles</li>
+                      : pagedAssigned.map(r => (
+                        <li key={r.uuid ?? r.roleUuid}
+                          onClick={() => { setPickedAssigned(r.uuid ?? r.roleUuid); setPickedUnassigned(null); }}
+                          className={`p-2 text-sm cursor-pointer hover:bg-muted ${pickedAssigned === (r.uuid ?? r.roleUuid) ? "bg-blue-50 border-l-4 border-blue-500" : ""}`}>
+                          {r.name ?? r.roleName}
+                        </li>
+                      ))}
+                  </ul>
+                  <Pagination currentPage={assignedPage} totalPages={totalAssignedPages} onPageChange={setAssignedPage}
+                    itemsPerPage={assignedPerPage} onItemsPerPageChange={v => { setAssignedPerPage(v); setAssignedPage(1); }} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Effective Permissions ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Permissions — {selectedUser.firstName} {selectedUser.otherNames}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 flex items-center gap-2">
+                <Search className="w-4 h-4 text-muted-foreground" />
+                <Input placeholder="Search permissions..." value={permSearch}
+                  onChange={e => { setPermSearch(e.target.value); setPermPage(1); }} className="max-w-sm" />
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Permission</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Access Type</TableHead>
+                    <TableHead>Override</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagedPerms.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No permissions</TableCell></TableRow>
+                  ) : pagedPerms.map((p: any, i: number) => (
+                    <TableRow key={p.permissionUuid ?? i}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.permDesc}</TableCell>
+                      <TableCell className="text-sm">{p.accessType}</TableCell>
+                      <TableCell>{overrideBadge(p.overrideType)}</TableCell>
+                      <TableCell className="text-right">
+                        {p.overrideType === "REVOKE" ? (
+                          <Button size="sm" onClick={() => handleGrantPerm(p.permissionUuid)}>Grant</Button>
+                        ) : (
+                          <Button size="sm" variant="destructive" onClick={() => handleRevokePerm(p.permissionUuid)}>Revoke</Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <Pagination currentPage={permPage} totalPages={totalPermPages} onPageChange={setPermPage}
+                itemsPerPage={permPerPage} onItemsPerPageChange={v => { setPermPerPage(v); setPermPage(1); }} />
+            </CardContent>
+          </Card>
+
+        </div>
+      )}
+
+      {/* ── Add / Edit Modal ── */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingUser ? "Edit User" : "Add User"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            <div className="space-y-1">
+              <Label>Username *</Label>
+              <Input value={form.userName} disabled={!!editingUser} onChange={e => setForm(f => ({ ...f, userName: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>First Name *</Label>
+              <Input value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Other Names</Label>
+              <Input value={form.otherNames} onChange={e => setForm(f => ({ ...f, otherNames: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Email *</Label>
+              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Phone</Label>
+              <Input value={form.phoneNumber} onChange={e => setForm(f => ({ ...f, phoneNumber: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Profile Ref</Label>
+              <Input value={form.profileRef} placeholder="Staff/Student UUID" onChange={e => setForm(f => ({ ...f, profileRef: e.target.value }))} />
+            </div>
+            {!editingUser && (
+              <div className="col-span-2 space-y-1">
+                <Label>Role</Label>
+                <select className="w-full border rounded px-3 py-2 text-sm"
+                  value={form.roleUuids[0] ?? ""}
+                  onChange={e => setForm(f => ({ ...f, roleUuids: e.target.value ? [e.target.value] : [] }))}>
+                  <option value="">— Select role —</option>
+                  {allRoles.map(r => (
+                    <option key={r.uuid ?? r.roleUuid} value={r.uuid ?? r.roleUuid}>{r.name ?? r.roleName}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

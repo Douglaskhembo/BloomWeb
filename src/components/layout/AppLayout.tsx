@@ -12,21 +12,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/ThemeProvider";
-import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 interface AppLayoutProps {
   role: "admin" | "parent" | "teacher";
 }
 
-const avatarInitials: Record<string, string> = {
-  admin: "AD",
-  parent: "PA",
-  teacher: "TC",
-};
-
 const AppLayout = ({ role }: AppLayoutProps) => {
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
+
+  const initials = user
+    ? `${user.firstName.charAt(0)}${user.otherNames.charAt(0)}`.toUpperCase()
+    : role.slice(0, 2).toUpperCase();
+
+  const displayName = user ? `${user.firstName} ${user.otherNames}` : role;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -46,21 +47,22 @@ const AppLayout = ({ role }: AppLayoutProps) => {
               <DropdownMenuTrigger asChild>
                 <Avatar className="w-9 h-9 cursor-pointer">
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
-                    {avatarInitials[role]}
+                    {initials}
                   </AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <div className="px-3 py-2 text-sm font-medium border-b border-border truncate">{displayName}</div>
                 <DropdownMenuItem onClick={toggleTheme}>
                   {theme === "light" ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />}
                   {theme === "light" ? "Dark Mode" : "Light Mode"}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => toast.info("Change password feature coming soon")}>
+                <DropdownMenuItem disabled>
                   <KeyRound className="w-4 h-4 mr-2" />
                   Change Password
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { toast.success("Logged out"); navigate("/"); }} className="text-destructive">
+                <DropdownMenuItem onClick={() => { logout(); navigate("/", { replace: true }); }} className="text-destructive">
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
                 </DropdownMenuItem>
@@ -72,7 +74,7 @@ const AppLayout = ({ role }: AppLayoutProps) => {
           <Outlet />
         </main>
         <footer className="border-t border-border bg-card/50 px-6 py-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>© {new Date().getFullYear()} EduManager. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} BloomSchool. All rights reserved.</span>
           <span>v1.0.0</span>
         </footer>
       </div>
