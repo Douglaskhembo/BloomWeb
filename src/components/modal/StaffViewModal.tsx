@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Pencil, Trash2 } from "lucide-react";
 
 export interface StaffMember {
-  id: string;
+  uuid: string;
+  staffId?: string;
   firstName: string;
   lastName: string;
   gender: string;
@@ -17,6 +18,8 @@ export interface StaffMember {
   address: string;
   practiceNumber: string;
   staffType: string;
+  employmentType: string;
+  contractPeriodMonths?: number | null;
   subject: string;
   grade: string;
   qualification: string;
@@ -28,6 +31,13 @@ export interface StaffMember {
   emergencyContactRelationship: string;
   documents: { name: string; file: string }[];
 }
+
+const STATUS_LABELS: Record<string, string> = { ACTIVE: "Active", ON_LEAVE: "On Leave", RESIGNED: "Resigned", SUSPENDED: "Suspended" };
+const STATUS_BADGE: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  ACTIVE: "default", ON_LEAVE: "secondary", RESIGNED: "destructive", SUSPENDED: "destructive",
+};
+const STAFF_TYPE_LABELS: Record<string, string> = { TEACHING: "Teaching", NON_TEACHING: "Non-Teaching", ADMIN: "Admin" };
+const EMPLOYMENT_TYPE_LABELS: Record<string, string> = { PERMANENT: "Permanent", CONTRACT: "Contract", INTERN: "Intern" };
 
 interface StaffViewModalProps {
   open: boolean;
@@ -44,7 +54,7 @@ const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusC
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Staff Details — {staff?.firstName} {staff?.lastName}</DialogTitle>
-          <DialogDescription>Staff ID: {staff?.id}</DialogDescription>
+          <DialogDescription>Staff ID: {staff?.staffId ?? staff?.uuid}</DialogDescription>
         </DialogHeader>
         {staff && (
           <div className="space-y-4">
@@ -55,8 +65,8 @@ const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusC
               <Select value={staff.status} onValueChange={(v) => onStatusChange(staff, v)}>
                 <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["Active", "On Leave", "Suspended", "Resigned", "Terminated"].map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  {["ACTIVE", "ON_LEAVE", "SUSPENDED", "RESIGNED"].map(s => (
+                    <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -73,22 +83,26 @@ const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusC
               <div><span className="text-muted-foreground">Phone:</span> <span className="font-medium ml-1">{staff.phone}</span></div>
               <div><span className="text-muted-foreground">Email:</span> <span className="font-medium ml-1">{staff.email}</span></div>
               <div><span className="text-muted-foreground">Address:</span> <span className="font-medium ml-1">{staff.address}</span></div>
-              <div><span className="text-muted-foreground">Practice Number:</span> <span className="font-medium ml-1">{staff.practiceNumber}</span></div>
-              <div><span className="text-muted-foreground">Staff Type:</span> <span className="font-medium ml-1">{staff.staffType}</span></div>
-              <div><span className="text-muted-foreground">Subject:</span> <span className="font-medium ml-1">{staff.subject}</span></div>
-              <div><span className="text-muted-foreground">Class:</span> <span className="font-medium ml-1">{staff.grade}</span></div>
-              <div><span className="text-muted-foreground">Qualification:</span> <span className="font-medium ml-1">{staff.qualification}</span></div>
-              <div><span className="text-muted-foreground">Experience:</span> <span className="font-medium ml-1">{staff.experience}</span></div>
-              <div><span className="text-muted-foreground">Date Joined:</span> <span className="font-medium ml-1">{staff.joined}</span></div>
-              <div><span className="text-muted-foreground">Status:</span> <Badge variant={staff.status === "Active" ? "default" : staff.status === "On Leave" ? "secondary" : "destructive"} className="text-[10px] ml-1">{staff.status}</Badge></div>
+              <div><span className="text-muted-foreground">Practice Number:</span> <span className="font-medium ml-1">{staff.practiceNumber || "—"}</span></div>
+              <div><span className="text-muted-foreground">Staff Type:</span> <span className="font-medium ml-1">{STAFF_TYPE_LABELS[staff.staffType] ?? staff.staffType}</span></div>
+              <div><span className="text-muted-foreground">Employment Type:</span> <span className="font-medium ml-1">{EMPLOYMENT_TYPE_LABELS[staff.employmentType] ?? staff.employmentType}</span></div>
+              {staff.contractPeriodMonths != null && (
+                <div><span className="text-muted-foreground">Contract Period:</span> <span className="font-medium ml-1">{staff.contractPeriodMonths} months</span></div>
+              )}
+              <div><span className="text-muted-foreground">Subject:</span> <span className="font-medium ml-1">{staff.subject || "—"}</span></div>
+              <div><span className="text-muted-foreground">Class:</span> <span className="font-medium ml-1">{staff.grade || "—"}</span></div>
+              <div><span className="text-muted-foreground">Qualification:</span> <span className="font-medium ml-1">{staff.qualification || "—"}</span></div>
+              <div><span className="text-muted-foreground">Experience:</span> <span className="font-medium ml-1">{staff.experience || "—"}</span></div>
+              <div><span className="text-muted-foreground">Date Joined:</span> <span className="font-medium ml-1">{staff.joined || "—"}</span></div>
+              <div><span className="text-muted-foreground">Status:</span> <Badge variant={STATUS_BADGE[staff.status] ?? "outline"} className="text-[10px] ml-1">{STATUS_LABELS[staff.status] ?? staff.status}</Badge></div>
             </div>
 
             <div className="border-t pt-3">
               <h4 className="text-sm font-semibold mb-2">Emergency Contact</h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <div><span className="text-muted-foreground">Name:</span> <span className="font-medium ml-1">{staff.emergencyContactName}</span></div>
-                <div><span className="text-muted-foreground">Phone:</span> <span className="font-medium ml-1">{staff.emergencyContactPhone}</span></div>
-                <div><span className="text-muted-foreground">Relationship:</span> <span className="font-medium ml-1">{staff.emergencyContactRelationship}</span></div>
+                <div><span className="text-muted-foreground">Name:</span> <span className="font-medium ml-1">{staff.emergencyContactName || "—"}</span></div>
+                <div><span className="text-muted-foreground">Phone:</span> <span className="font-medium ml-1">{staff.emergencyContactPhone || "—"}</span></div>
+                <div><span className="text-muted-foreground">Relationship:</span> <span className="font-medium ml-1">{staff.emergencyContactRelationship || "—"}</span></div>
               </div>
             </div>
 

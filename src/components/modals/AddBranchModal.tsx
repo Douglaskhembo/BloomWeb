@@ -17,9 +17,10 @@ interface AddBranchModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (value: BranchFormValue) => void;
+  initialValues?: BranchFormValue;
 }
 
-const AddBranchModal = ({ open, onOpenChange, onSave }: AddBranchModalProps) => {
+const AddBranchModal = ({ open, onOpenChange, onSave, initialValues }: AddBranchModalProps) => {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [location, setLocation] = useState("");
@@ -28,13 +29,13 @@ const AddBranchModal = ({ open, onOpenChange, onSave }: AddBranchModalProps) => 
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setCode("");
-      setLocation("");
-      setPhone("");
-      setStatus("active");
+      setName(initialValues?.name ?? "");
+      setCode(initialValues?.code ?? "");
+      setLocation(initialValues?.location ?? "");
+      setPhone(initialValues?.phone ?? "");
+      setStatus(initialValues?.status ?? "active");
     }
-  }, [open]);
+  }, [open, initialValues]);
 
   const submit = () => {
     if (!name.trim()) return;
@@ -52,7 +53,7 @@ const AddBranchModal = ({ open, onOpenChange, onSave }: AddBranchModalProps) => 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Branch</DialogTitle>
+          <DialogTitle>{initialValues ? "Edit Branch" : "Add Branch"}</DialogTitle>
           <DialogDescription>Add a school branch. Assign departments and grade levels after creation.</DialogDescription>
         </DialogHeader>
 

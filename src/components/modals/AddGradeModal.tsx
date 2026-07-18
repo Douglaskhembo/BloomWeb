@@ -17,9 +17,10 @@ interface AddGradeModalProps {
   onOpenChange: (open: boolean) => void;
   onSave: (value: GradeFormValue) => void;
   defaultOrder?: number;
+  initialValues?: GradeFormValue;
 }
 
-const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1 }: AddGradeModalProps) => {
+const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialValues }: AddGradeModalProps) => {
   const [name, setName] = useState("");
   const [order, setOrder] = useState<number>(defaultOrder);
   const [streams, setStreams] = useState<number>(1);
@@ -27,12 +28,12 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1 }: AddGrad
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setOrder(defaultOrder);
-      setStreams(1);
-      setStatus("active");
+      setName(initialValues?.name ?? "");
+      setOrder(initialValues?.order ?? defaultOrder);
+      setStreams(initialValues?.streams ?? 1);
+      setStatus(initialValues?.status ?? "active");
     }
-  }, [open, defaultOrder]);
+  }, [open, defaultOrder, initialValues]);
 
   const submit = () => {
     if (!name.trim()) return;
@@ -44,7 +45,7 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1 }: AddGrad
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Grade Level</DialogTitle>
+          <DialogTitle>{initialValues ? "Edit Grade Level" : "Add Grade Level"}</DialogTitle>
           <DialogDescription>Define a new class level for your school.</DialogDescription>
         </DialogHeader>
 

@@ -16,9 +16,10 @@ interface AddDepartmentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (value: DepartmentFormValue) => void;
+  initialValues?: DepartmentFormValue;
 }
 
-const AddDepartmentModal = ({ open, onOpenChange, onSave }: AddDepartmentModalProps) => {
+const AddDepartmentModal = ({ open, onOpenChange, onSave, initialValues }: AddDepartmentModalProps) => {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [head, setHead] = useState("");
@@ -26,12 +27,12 @@ const AddDepartmentModal = ({ open, onOpenChange, onSave }: AddDepartmentModalPr
 
   useEffect(() => {
     if (open) {
-      setName("");
-      setCode("");
-      setHead("");
-      setStatus("active");
+      setName(initialValues?.name ?? "");
+      setCode(initialValues?.code ?? "");
+      setHead(initialValues?.head ?? "");
+      setStatus(initialValues?.status ?? "active");
     }
-  }, [open]);
+  }, [open, initialValues]);
 
   const submit = () => {
     if (!name.trim()) return;
@@ -43,7 +44,7 @@ const AddDepartmentModal = ({ open, onOpenChange, onSave }: AddDepartmentModalPr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Department</DialogTitle>
+          <DialogTitle>{initialValues ? "Edit Department" : "Add Department"}</DialogTitle>
           <DialogDescription>Create a department at school level. You can assign it to branches later.</DialogDescription>
         </DialogHeader>
 

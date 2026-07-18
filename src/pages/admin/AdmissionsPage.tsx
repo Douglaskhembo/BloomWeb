@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -11,38 +11,22 @@ import { Separator } from "@/components/ui/separator";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Plus, FileText, Users, CheckCircle, Clock, MoreVertical, ArrowRight, Upload, X, File, ArrowLeft } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { useStudentContext } from "@/context/StudentContext";
+import { useStudentContext, STAGE_LABELS } from "@/context/StudentContext";
+import { SchoolApi } from "@/services/api";
 import { toast } from "sonner";
 
-const stages = ["Application Review", "Interview Scheduled", "Offer Sent", "Fee Payment"];
-
-const stageColors: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  "Application Review": "secondary",
-  "Interview Scheduled": "outline",
-  "Offer Sent": "default",
-  "Fee Payment": "outline",
+const STAGE_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
+  APPLICATION_REVIEW: "secondary",
+  INTERVIEW_SCHEDULED: "outline",
+  OFFER_SENT: "default",
+  FEE_PAYMENT: "outline",
+  ENROLLED: "default",
 };
 
-const grades = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9"];
 const streams = ["A", "B", "C", "-"];
+const documentTypes = ["Birth Certificate", "Transfer Letter", "Previous School Report", "Passport Photo", "Medical Records", "Immunization Card", "Parent/Guardian ID Copy", "Other"];
 
-interface UploadedDoc {
-  name: string;
-  type: string;
-  size: number;
-  file: File;
-}
-
-const documentTypes = [
-  "Birth Certificate",
-  "Transfer Letter",
-  "Previous School Report",
-  "Passport Photo",
-  "Medical Records",
-  "Immunization Card",
-  "Parent/Guardian ID Copy",
-  "Other",
-];
+interface UploadedDoc { name: string; type: string; size: number; file: File; }
 
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -51,23 +35,30 @@ const formatFileSize = (bytes: number) => {
 };
 
 const AdmissionsPage = () => {
-  const { applications, addApplication, updateApplicationStage } = useStudentContext();
+  const { applications, addApplication, updateApplicationStage, getNextStage, loadingApplications } = useStudentContext();
   const [showForm, setShowForm] = useState(false);
   const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [grades, setGrades] = useState<{ uuid: string; name: string; order: number }[]>([]);
+
+  useEffect(() => {
+    SchoolApi.getGradeLevels().then((data) =>
+      setGrades(Array.isArray(data) ? [...data].sort((a, b) => a.order - b.order) : [])
+    );
+  }, []);
 
   const [form, setForm] = useState({
     firstName: "", lastName: "", gender: "", dob: "",
-    grade: "", stream: "",
+    grade: "", gradeLevelUuid: "", stream: "",
     parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "",
     address: "", medicalNotes: "", previousSchool: "", admissionType: "New",
   });
-
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [selectedDocType, setSelectedDocType] = useState("");
 
   const resetForm = () => {
-    setForm({ firstName: "", lastName: "", gender: "", dob: "", grade: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
+    setForm({ firstName: "", lastName: "", gender: "", dob: "", grade: "", gradeLevelUuid: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
     setDocuments([]);
     setSelectedDocType("");
     setStep(1);
@@ -77,53 +68,44 @@ const AdmissionsPage = () => {
     const files = e.target.files;
     if (!files) return;
     const docType = selectedDocType || "Other";
-    const newDocs: UploadedDoc[] = Array.from(files).map(file => ({
-      name: file.name,
-      type: docType,
-      size: file.size,
-      file,
-    }));
-    setDocuments(prev => [...prev, ...newDocs]);
+    setDocuments(prev => [...prev, ...Array.from(files).map(file => ({ name: file.name, type: docType, size: file.size, file }))]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const removeDocument = (index: number) => {
-    setDocuments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.gender || !form.dob || !form.grade || !form.parentName || !form.parentPhone) {
       toast.error("Please fill in all required fields");
       return;
     }
-    addApplication({ ...form, documents: documents.map(d => ({ name: d.name, type: d.type, size: d.size })) });
-    setShowForm(false);
-    resetForm();
-    toast.success(`Application for ${form.firstName} ${form.lastName} has been created`);
-  };
-
-  const getNextStage = (current: string) => {
-    const idx = stages.indexOf(current);
-    return idx < stages.length - 1 ? stages[idx + 1] : null;
-  };
-
-  const handleAdvanceStage = (id: string, currentStage: string) => {
-    if (currentStage === "Fee Payment") {
-      updateApplicationStage(id, "Enrolled");
-      toast.success("Student has been enrolled successfully and added to the Students register!");
-      return;
+    setSubmitting(true);
+    try {
+      await addApplication({ ...form, documents: documents.map(d => ({ name: d.name, type: d.type, size: d.size })) });
+      setShowForm(false);
+      resetForm();
+      toast.success(`Application for ${form.firstName} ${form.lastName} submitted`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? "Failed to submit application");
+    } finally {
+      setSubmitting(false);
     }
-    const next = getNextStage(currentStage);
-    if (!next) return;
-    updateApplicationStage(id, next);
-    toast.success(`Application moved to "${next}"`);
   };
 
-  const totalApps = applications.filter(a => a.stage !== "Enrolled").length;
-  const underReview = applications.filter(a => a.stage === "Application Review" || a.stage === "Interview Scheduled").length;
-  const offersSent = applications.filter(a => a.stage === "Offer Sent" || a.stage === "Fee Payment").length;
-  
+  const handleAdvanceStage = async (uuid: string, currentStage: string) => {
+    const next = currentStage === "FEE_PAYMENT" ? "ENROLLED" : getNextStage(currentStage);
+    if (!next) return;
+    try {
+      await updateApplicationStage(uuid, next);
+      if (next === "ENROLLED") {
+        toast.success("Student enrolled and added to the Students register!");
+      } else {
+        toast.success(`Moved to "${STAGE_LABELS[next]}"`);
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? "Failed to update stage");
+    }
+  };
 
+  const active = applications.filter(a => a.stage !== "ENROLLED" && a.stage !== "REJECTED");
   const stepLabels = ["Student Info", "Class & Guardian", "Additional Details", "Documents"];
 
   if (showForm) {
@@ -139,7 +121,6 @@ const AdmissionsPage = () => {
           </div>
         </div>
 
-        {/* Step indicators */}
         <div className="flex items-center gap-1">
           {stepLabels.map((label, i) => (
             <div key={i} className="flex-1">
@@ -151,17 +132,15 @@ const AdmissionsPage = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
-              Step {step} of 4 — {stepLabels[step - 1]}
-            </CardTitle>
+            <CardTitle className="text-lg">Step {step} of 4 — {stepLabels[step - 1]}</CardTitle>
           </CardHeader>
           <CardContent>
             {step === 1 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Admission Type <span className="text-destructive">*</span></Label>
+                  <Label>Admission Type</Label>
                   <Select value={form.admissionType} onValueChange={v => setForm({ ...form, admissionType: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="New">New Student</SelectItem>
                       <SelectItem value="Transfer">Transfer Student</SelectItem>
@@ -203,43 +182,33 @@ const AdmissionsPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Grade <span className="text-destructive">*</span></Label>
-                  <Select value={form.grade} onValueChange={v => setForm({ ...form, grade: v })}>
+                  <Select value={form.grade} onValueChange={v => {
+                      const gl = grades.find(g => g.name === v);
+                      setForm({ ...form, grade: v, gradeLevelUuid: gl?.uuid ?? "" });
+                    }}>
                     <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                    <SelectContent>
-                      {grades.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{grades.map(g => <SelectItem key={g.uuid} value={g.name}>{g.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Stream</Label>
                   <Select value={form.stream} onValueChange={v => setForm({ ...form, stream: v })}>
                     <SelectTrigger><SelectValue placeholder="Select stream" /></SelectTrigger>
-                    <SelectContent>
-                      {streams.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{streams.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <Separator className="col-span-full" />
-                <div className="col-span-full">
-                  <p className="text-sm font-medium text-muted-foreground mb-4">Parent / Guardian Information</p>
-                </div>
+                <div className="col-span-full"><p className="text-sm font-medium text-muted-foreground mb-4">Parent / Guardian Information</p></div>
                 <div className="space-y-2">
                   <Label>Full Name <span className="text-destructive">*</span></Label>
                   <Input value={form.parentName} onChange={e => setForm({ ...form, parentName: e.target.value })} placeholder="e.g. Mrs. Kamau" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Relationship <span className="text-destructive">*</span></Label>
+                  <Label>Relationship</Label>
                   <Select value={form.parentRelationship} onValueChange={v => setForm({ ...form, parentRelationship: v })}>
                     <SelectTrigger><SelectValue placeholder="Select relationship" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Father">Father</SelectItem>
-                      <SelectItem value="Mother">Mother</SelectItem>
-                      <SelectItem value="Guardian">Guardian</SelectItem>
-                      <SelectItem value="Uncle">Uncle</SelectItem>
-                      <SelectItem value="Aunt">Aunt</SelectItem>
-                      <SelectItem value="Grandparent">Grandparent</SelectItem>
-                      <SelectItem value="Sibling">Sibling</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      {["Father", "Mother", "Guardian", "Uncle", "Aunt", "Grandparent", "Sibling", "Other"].map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -269,137 +238,71 @@ const AdmissionsPage = () => {
 
             {step === 4 && (
               <div className="space-y-6">
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Upload supporting documents such as birth certificates, transfer letters, medical records, etc.
-                  </p>
-
-                  <div className="flex items-end gap-3">
-                    <div className="space-y-2 flex-1 max-w-xs">
-                      <Label>Document Type</Label>
-                      <Select value={selectedDocType} onValueChange={setSelectedDocType}>
-                        <SelectTrigger><SelectValue placeholder="Select document type" /></SelectTrigger>
-                        <SelectContent>
-                          {documentTypes.map(dt => <SelectItem key={dt} value={dt}>{dt}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                        multiple
-                        onChange={handleFileUpload}
-                      />
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          if (!selectedDocType) {
-                            toast.error("Please select a document type first");
-                            return;
-                          }
-                          fileInputRef.current?.click();
-                        }}
-                      >
-                        <Upload className="w-4 h-4 mr-2" />
-                        Choose File
-                      </Button>
-                    </div>
+                <p className="text-sm text-muted-foreground">Upload supporting documents such as birth certificates, transfer letters, medical records, etc.</p>
+                <div className="flex items-end gap-3">
+                  <div className="space-y-2 flex-1 max-w-xs">
+                    <Label>Document Type</Label>
+                    <Select value={selectedDocType} onValueChange={setSelectedDocType}>
+                      <SelectTrigger><SelectValue placeholder="Select document type" /></SelectTrigger>
+                      <SelectContent>{documentTypes.map(dt => <SelectItem key={dt} value={dt}>{dt}</SelectItem>)}</SelectContent>
+                    </Select>
                   </div>
-
-                  {/* Drop zone */}
-                  <div
-                    className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
-                    onClick={() => {
-                      if (!selectedDocType) {
-                        toast.error("Please select a document type first");
-                        return;
-                      }
-                      fileInputRef.current?.click();
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (!selectedDocType) {
-                        toast.error("Please select a document type first");
-                        return;
-                      }
-                      const docType = selectedDocType || "Other";
-                      const files = Array.from(e.dataTransfer.files);
-                      const newDocs: UploadedDoc[] = files.map(file => ({
-                        name: file.name,
-                        type: docType,
-                        size: file.size,
-                        file,
-                      }));
-                      setDocuments(prev => [...prev, ...newDocs]);
-                    }}
-                  >
-                    <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      Drag and drop files here, or click to browse
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Supported: PDF, JPG, PNG, DOC, DOCX (max 20MB)
-                    </p>
+                  <div>
+                    <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" multiple onChange={handleFileUpload} />
+                    <Button variant="outline" onClick={() => { if (!selectedDocType) { toast.error("Select a document type first"); return; } fileInputRef.current?.click(); }}>
+                      <Upload className="w-4 h-4 mr-2" /> Choose File
+                    </Button>
                   </div>
-
-                  {/* Uploaded documents list */}
-                  {documents.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>Uploaded Documents ({documents.length})</Label>
-                      <div className="space-y-2">
-                        {documents.map((doc, i) => (
-                          <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
-                            <div className="flex items-center gap-3">
-                              <File className="w-5 h-5 text-primary" />
-                              <div>
-                                <p className="text-sm font-medium">{doc.name}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  <Badge variant="outline" className="text-[10px] mr-2">{doc.type}</Badge>
-                                  {formatFileSize(doc.size)}
-                                </p>
-                              </div>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeDocument(i)}>
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
+                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                  onClick={() => { if (!selectedDocType) { toast.error("Select a document type first"); return; } fileInputRef.current?.click(); }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => {
+                    e.preventDefault();
+                    if (!selectedDocType) { toast.error("Select a document type first"); return; }
+                    const newDocs = Array.from(e.dataTransfer.files).map(file => ({ name: file.name, type: selectedDocType, size: file.size, file }));
+                    setDocuments(prev => [...prev, ...newDocs]);
+                  }}>
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Drag and drop files here, or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">Supported: PDF, JPG, PNG, DOC, DOCX</p>
+                </div>
+                {documents.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Uploaded Documents ({documents.length})</Label>
+                    {documents.map((doc, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
+                        <div className="flex items-center gap-3">
+                          <File className="w-5 h-5 text-primary" />
+                          <div>
+                            <p className="text-sm font-medium">{doc.name}</p>
+                            <p className="text-xs text-muted-foreground"><Badge variant="outline" className="text-[10px] mr-2">{doc.type}</Badge>{formatFileSize(doc.size)}</p>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDocuments(prev => prev.filter((_, idx) => idx !== i))}>
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Navigation buttons */}
         <div className="flex items-center justify-between">
-          <div>
-            {step > 1 && (
-              <Button variant="outline" onClick={() => setStep(step - 1)}>Back</Button>
-            )}
-          </div>
+          <div>{step > 1 && <Button variant="outline" onClick={() => setStep(step - 1)}>Back</Button>}</div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => { setShowForm(false); resetForm(); }}>Cancel</Button>
             {step < 4 ? (
               <Button onClick={() => {
-                if (step === 1 && (!form.firstName || !form.lastName || !form.gender || !form.dob)) {
-                  toast.error("Please fill in all required fields");
-                  return;
-                }
-                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone)) {
-                  toast.error("Please fill in all required fields");
-                  return;
-                }
+                if (step === 1 && (!form.firstName || !form.lastName || !form.gender || !form.dob)) { toast.error("Please fill in all required fields"); return; }
+                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone)) { toast.error("Please fill in all required fields"); return; }
                 setStep(step + 1);
               }}>Next</Button>
             ) : (
-              <Button onClick={handleSubmit}>Submit Application</Button>
+              <Button onClick={handleSubmit} disabled={submitting}>{submitting ? "Submitting..." : "Submit Application"}</Button>
             )}
           </div>
         </div>
@@ -418,10 +321,10 @@ const AdmissionsPage = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="Total Applications" value={totalApps} icon={FileText} iconColor="bg-primary/10 text-primary" />
-        <StatCard title="Under Review" value={underReview} icon={Clock} iconColor="bg-warning/10 text-warning" />
-        <StatCard title="Offers Sent" value={offersSent} icon={Users} iconColor="bg-info/10 text-info" />
-        <StatCard title="Enrolled" value={applications.filter(a => a.stage === "Enrolled").length} icon={CheckCircle} iconColor="bg-success/10 text-success" />
+        <StatCard title="Total Applications" value={active.length} icon={FileText} iconColor="bg-primary/10 text-primary" />
+        <StatCard title="Under Review" value={active.filter(a => a.stage === "APPLICATION_REVIEW" || a.stage === "INTERVIEW_SCHEDULED").length} icon={Clock} iconColor="bg-warning/10 text-warning" />
+        <StatCard title="Offers Sent" value={active.filter(a => a.stage === "OFFER_SENT" || a.stage === "FEE_PAYMENT").length} icon={Users} iconColor="bg-info/10 text-info" />
+        <StatCard title="Enrolled" value={applications.filter(a => a.stage === "ENROLLED").length} icon={CheckCircle} iconColor="bg-success/10 text-success" />
       </div>
 
       <Card>
@@ -430,65 +333,65 @@ const AdmissionsPage = () => {
           <CardDescription>Track applications through each stage</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="all">
-            <TabsList className="mb-4">
-              <TabsTrigger value="all">All ({applications.filter(a => a.stage !== "Enrolled").length})</TabsTrigger>
-              <TabsTrigger value="review">Application Review ({applications.filter(a => a.stage === "Application Review").length})</TabsTrigger>
-              <TabsTrigger value="interview">Interview Scheduled ({applications.filter(a => a.stage === "Interview Scheduled").length})</TabsTrigger>
-              <TabsTrigger value="waiting">Waiting Enrolment ({applications.filter(a => a.stage === "Offer Sent" || a.stage === "Fee Payment").length})</TabsTrigger>
-            </TabsList>
-            {["all", "review", "interview", "waiting"].map(tab => {
-              const filtered = applications.filter(app => {
-                if (tab === "all") return app.stage !== "Enrolled";
-                if (tab === "review") return app.stage === "Application Review";
-                if (tab === "interview") return app.stage === "Interview Scheduled";
-                if (tab === "waiting") return app.stage === "Offer Sent" || app.stage === "Fee Payment";
-                return true;
-              });
-              return (
-                <TabsContent key={tab} value={tab}>
-                  {filtered.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">No applications in this category</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {filtered.map((app) => (
-                        <div key={app.id} className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                              <span className="text-sm font-bold text-primary">{app.name.charAt(0)}</span>
+          {loadingApplications ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading applications...</p>
+          ) : (
+            <Tabs defaultValue="all">
+              <TabsList className="mb-4">
+                <TabsTrigger value="all">All ({active.length})</TabsTrigger>
+                <TabsTrigger value="review">Application Review ({active.filter(a => a.stage === "APPLICATION_REVIEW").length})</TabsTrigger>
+                <TabsTrigger value="interview">Interview Scheduled ({active.filter(a => a.stage === "INTERVIEW_SCHEDULED").length})</TabsTrigger>
+                <TabsTrigger value="waiting">Waiting Enrolment ({active.filter(a => a.stage === "OFFER_SENT" || a.stage === "FEE_PAYMENT").length})</TabsTrigger>
+              </TabsList>
+              {(["all", "review", "interview", "waiting"] as const).map(tab => {
+                const filtered = active.filter(app => {
+                  if (tab === "all") return true;
+                  if (tab === "review") return app.stage === "APPLICATION_REVIEW";
+                  if (tab === "interview") return app.stage === "INTERVIEW_SCHEDULED";
+                  if (tab === "waiting") return app.stage === "OFFER_SENT" || app.stage === "FEE_PAYMENT";
+                  return true;
+                });
+                return (
+                  <TabsContent key={tab} value={tab}>
+                    {filtered.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-8">No applications in this category</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {filtered.map(app => (
+                          <div key={app.id} className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                <span className="text-sm font-bold text-primary">{app.firstName.charAt(0)}</span>
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{app.firstName} {app.lastName}</p>
+                                <p className="text-xs text-muted-foreground">{app.grade} · {app.parentPhone}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-sm">{app.name}</p>
-                              <p className="text-xs text-muted-foreground">{app.grade} · {app.parentPhone}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-muted-foreground">{app.date}</span>
-                            <Badge variant={stageColors[app.stage]} className="text-[10px]">{app.stage}</Badge>
-                            {app.stage !== "Enrolled" && (
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground">{app.createdAt?.split("T")[0]}</span>
+                              <Badge variant={STAGE_BADGE[app.stage] ?? "outline"} className="text-[10px]">{STAGE_LABELS[app.stage] ?? app.stage}</Badge>
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <MoreVertical className="w-4 h-4" />
-                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => handleAdvanceStage(app.id, app.stage)}>
+                                  <DropdownMenuItem onClick={() => handleAdvanceStage(app.uuid, app.stage)}>
                                     <ArrowRight className="w-4 h-4 mr-2" />
-                                    {app.stage === "Fee Payment" ? "Enrol Student" : `Move to ${getNextStage(app.stage)}`}
+                                    {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
-                            )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-              );
-            })}
-          </Tabs>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                );
+              })}
+            </Tabs>
+          )}
         </CardContent>
       </Card>
     </div>

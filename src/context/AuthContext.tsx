@@ -28,20 +28,30 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    try { return JSON.parse(localStorage.getItem('auth_user') ?? 'null'); } catch { return null; }
+  });
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
   const logoutRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    if (token) setAuthToken(token);
+  }, []);
 
   const login = (userData: AuthUser) => {
     setUser(userData);
     setToken(userData.token);
     setAuthToken(userData.token);
+    localStorage.setItem('auth_token', userData.token);
+    localStorage.setItem('auth_user', JSON.stringify(userData));
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
     setAuthToken(null);
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
   };
 
   logoutRef.current = logout;

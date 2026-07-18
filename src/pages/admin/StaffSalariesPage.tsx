@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Search, Pencil, Wallet } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { useToast } from "@/hooks/use-toast";
-import { initialStaff } from "@/data/staff";
+import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES } from "@/lib/payroll/kenya";
 import StaffSalaryModal from "@/components/modal/StaffSalaryModal";
@@ -26,9 +26,23 @@ const StaffSalariesPage = () => {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffSalary>({ basic: 0, allowances: {}, deductions: {} });
+  const [initialStaff, setInitialStaff] = useState<any[]>([]);
+
+  useEffect(() => {
+    StaffApi.getAll().then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      setInitialStaff(list.map((s: any) => ({
+        uuid: s.uuid,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        staffType: s.staffType,
+        status: s.status,
+      })));
+    }).catch(() => setInitialStaff([]));
+  }, []);
 
   const staff = initialStaff.filter((s) =>
-    `${s.firstName} ${s.lastName} ${s.id}`.toLowerCase().includes(search.toLowerCase())
+    `${s.firstName} ${s.lastName} ${s.uuid}`.toLowerCase().includes(search.toLowerCase())
   );
 
   const openEdit = (id: string) => {
@@ -46,17 +60,17 @@ const StaffSalariesPage = () => {
 
   const totals = initialStaff.reduce(
     (acc, s) => {
-      const r = computeFor(getSalary(s.id));
+      const r = computeFor(getSalary(s.uuid));
       acc.gross += r.gross;
       acc.net += r.net;
       acc.tax += r.paye + r.nssf + r.nhif + r.housingLevy;
-      acc.configured += getSalary(s.id).basic > 0 ? 1 : 0;
+      acc.configured += getSalary(s.uuid).basic > 0 ? 1 : 0;
       return acc;
     },
     { gross: 0, net: 0, tax: 0, configured: 0 },
   );
 
-  const editingStaff = initialStaff.find((s) => s.id === editingId);
+  const editingStaff = initialStaff.find((s) => s.uuid === editingId);
 
   return (
     <div className="space-y-6">
@@ -101,13 +115,13 @@ const StaffSalariesPage = () => {
             </TableHeader>
             <TableBody>
               {staff.map((s) => {
-                const sal = getSalary(s.id);
+                const sal = getSalary(s.uuid);
                 const result = computeFor(sal);
                 const allowanceTotal = Object.values(sal.allowances).reduce((sum, v) => sum + (v || 0), 0);
                 const configured = sal.basic > 0;
                 return (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-mono text-xs">{s.id}</TableCell>
+                  <TableRow key={s.uuid}>
+                    <TableCell className="font-mono text-xs">{s.uuid}</TableCell>
                     <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                     <TableCell><Badge variant="outline" className="text-[10px]">{s.staffType}</Badge></TableCell>
                     <TableCell className="text-right">{configured ? formatKES(sal.basic) : <span className="text-xs text-muted-foreground">Not set</span>}</TableCell>
@@ -115,7 +129,7 @@ const StaffSalariesPage = () => {
                     <TableCell className="text-right">{configured ? formatKES(result.gross) : "—"}</TableCell>
                     <TableCell className="text-right font-semibold">{configured ? formatKES(result.net) : "—"}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(s.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(s.uuid)}>
                         <Pencil className="w-3.5 h-3.5 mr-1" /> {configured ? "Edit" : "Set Salary"}
                       </Button>
                     </TableCell>

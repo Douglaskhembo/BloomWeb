@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import StatCard from "@/components/dashboard/StatCard";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { initialStaff } from "@/data/staff";
+import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES } from "@/lib/payroll/kenya";
 import jsPDF from "jspdf";
@@ -35,13 +35,27 @@ const PayrollPage = () => {
   const [paid, setPaid] = useState<Record<string, boolean>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | "current">("current");
   const [search, setSearch] = useState("");
+  const [initialStaff, setInitialStaff] = useState<any[]>([]);
+
+  useEffect(() => {
+    StaffApi.getAll().then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      setInitialStaff(list.map((s: any) => ({
+        uuid: s.uuid,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        staffType: s.staffType,
+        status: s.status,
+      })));
+    }).catch(() => setInitialStaff([]));
+  }, []);
 
   const rows = useMemo(
     () =>
       initialStaff
         .filter((s) => s.status !== "Resigned")
         .map((s) => {
-          const sal = getSalary(s.id);
+          const sal = getSalary(s.uuid);
           return { staff: s, sal, line: computeLine(sal) };
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,7 +72,7 @@ const PayrollPage = () => {
     { gross: 0, net: 0, deductions: 0 },
   );
   const configuredCount = rows.filter((r) => r.sal.basic > 0).length;
-  const paidCount = rows.filter((r) => paid[r.staff.id]).length;
+  const paidCount = rows.filter((r) => paid[r.staff.uuid]).length;
 
   const now = new Date();
   const currentMonthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
@@ -68,8 +82,8 @@ const PayrollPage = () => {
     const lines: Record<string, ReturnType<typeof computeLine>> = {};
     rows.forEach((r) => {
       if (r.sal.basic > 0) {
-        nextPaid[r.staff.id] = true;
-        lines[r.staff.id] = r.line;
+        nextPaid[r.staff.uuid] = true;
+        lines[r.staff.uuid] = r.line;
       }
     });
     setPaid(nextPaid);
@@ -91,14 +105,14 @@ const PayrollPage = () => {
   const activeRun = selectedRunId === "current" ? null : payrollHistory.find((r) => r.id === selectedRunId);
 
   const displayRows = useMemo(() => {
-    if (!activeRun) return rows.map((r) => ({ ...r, isPaid: paid[r.staff.id] || false }));
+    if (!activeRun) return rows.map((r) => ({ ...r, isPaid: paid[r.staff.uuid] || false }));
     return initialStaff
       .filter((s) => s.status !== "Resigned")
       .map((s) => ({
         staff: s,
-        sal: getSalary(s.id),
-        line: activeRun.lines[s.id] || computeLine(getSalary(s.id)),
-        isPaid: activeRun.paidStaff.includes(s.id),
+        sal: getSalary(s.uuid),
+        line: activeRun.lines[s.uuid] || computeLine(getSalary(s.uuid)),
+        isPaid: activeRun.paidStaff.includes(s.uuid),
       }));
   }, [activeRun, rows, paid, getSalary]);
 
@@ -117,7 +131,7 @@ const PayrollPage = () => {
   const q = search.trim().toLowerCase();
   const filteredRows = q
     ? displayRows.filter(({ staff }) => {
-        const hay = `${staff.id} ${staff.firstName} ${staff.lastName} ${(staff as any).email ?? ""} ${(staff as any).role ?? ""} ${(staff as any).department ?? ""}`.toLowerCase();
+        const hay = `${staff.uuid} ${staff.firstName} ${staff.lastName} ${(staff as any).email ?? ""} ${(staff as any).role ?? ""} ${(staff as any).department ?? ""}`.toLowerCase();
         return hay.includes(q);
       })
     : displayRows;
@@ -128,7 +142,7 @@ const PayrollPage = () => {
     filteredRows
       .filter((r) => r.sal.basic > 0)
       .map(({ staff, line, isPaid }) => ({
-        ID: staff.id,
+        ID: staff.uuid,
         Name: `${staff.firstName} ${staff.lastName}`,
         Basic: line.basic,
         Allowances: line.taxableAllowances + line.nonTaxableAllowances,
@@ -284,8 +298,8 @@ const PayrollPage = () => {
                 const allow = line.taxableAllowances + line.nonTaxableAllowances;
                 if (sal.basic === 0) {
                   return (
-                    <TableRow key={staff.id} className="opacity-60">
-                      <TableCell className="font-mono text-xs">{staff.id}</TableCell>
+                    <TableRow key={staff.uuid} className="opacity-60">
+                      <TableCell className="font-mono text-xs">{staff.uuid}</TableCell>
                       <TableCell className="font-medium">{staff.firstName} {staff.lastName}</TableCell>
                       <TableCell colSpan={9} className="text-center text-xs text-muted-foreground italic">
                         No salary configured — <Link to="/admin/staff-salaries" className="text-primary underline">set it up</Link>
@@ -295,8 +309,8 @@ const PayrollPage = () => {
                   );
                 }
                 return (
-                  <TableRow key={staff.id}>
-                    <TableCell className="font-mono text-xs">{staff.id}</TableCell>
+                  <TableRow key={staff.uuid}>
+                    <TableCell className="font-mono text-xs">{staff.uuid}</TableCell>
                     <TableCell className="font-medium">{staff.firstName} {staff.lastName}</TableCell>
                     <TableCell className="text-right">{line.basic.toLocaleString()}</TableCell>
                     <TableCell className="text-right text-success">{allow.toLocaleString()}</TableCell>

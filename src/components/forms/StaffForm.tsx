@@ -7,12 +7,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Upload, X } from "lucide-react";
 import type { StaffMember } from "@/components/modal/StaffViewModal";
 
-export type StaffFormData = Omit<StaffMember, "id">;
+export type StaffFormData = Omit<StaffMember, "uuid" | "staffId">;
 
 export const emptyStaff: StaffFormData = {
   firstName: "", lastName: "", gender: "", dateOfBirth: "", idNumber: "",
-  phone: "", email: "", address: "", practiceNumber: "", staffType: "", subject: "", grade: "",
-  qualification: "", experience: "", joined: "", status: "Active",
+  phone: "", email: "", address: "", practiceNumber: "",
+  staffType: "", employmentType: "", contractPeriodMonths: null,
+  subject: "", grade: "",
+  qualification: "", experience: "", joined: "", status: "ACTIVE",
   emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelationship: "",
   documents: [],
 };
@@ -129,15 +131,40 @@ const StaffForm = ({ value, onChange, onSubmit, onCancel, isEditing }: StaffForm
               <Select value={value.staffType} onValueChange={(v) => updateField("staffType", v)}>
                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Teaching">Teaching</SelectItem>
-                  <SelectItem value="Support">Support</SelectItem>
+                  <SelectItem value="TEACHING">Teaching</SelectItem>
+                  <SelectItem value="NON_TEACHING">Non-Teaching</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {renderField("Subject / Role", "subject")}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Employment Type <span className="text-destructive">*</span></Label>
+              <Select value={value.employmentType} onValueChange={(v) => updateField("employmentType", v)}>
+                <SelectTrigger><SelectValue placeholder="Select employment type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PERMANENT">Permanent</SelectItem>
+                  <SelectItem value="CONTRACT">Contract</SelectItem>
+                  <SelectItem value="INTERN">Intern</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          {(value.employmentType === "CONTRACT" || value.employmentType === "INTERN") && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Contract Period (months) <span className="text-destructive">*</span></Label>
+              <input
+                type="number"
+                min={1}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={value.contractPeriodMonths ?? ""}
+                onChange={e => onChange({ ...value, contractPeriodMonths: e.target.value ? Number(e.target.value) : null })}
+                placeholder="e.g. 12"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
-            {value.staffType === "Teaching" && renderField("Practice Number", "practiceNumber", "text", true)}
+            {renderField("Subject / Role", "subject")}
+            {value.staffType === "TEACHING" && renderField("Practice Number", "practiceNumber", "text", true)}
             {renderField("Assigned Class", "grade")}
             {renderField("Qualification", "qualification")}
           </div>
