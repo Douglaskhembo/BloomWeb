@@ -249,7 +249,8 @@ export const SchoolApi = {
   getGradeLevels: async (): Promise<any[]> => {
     try {
       const res = await schoolAPI.get('/grade-levels');
-      const d = res.data?.body ?? res.data;
+      console.log('Grade Levels Response:', res.data.data); // Debugging line
+      const d = res.data.data;
       return Array.isArray(d) ? d : [];
     } catch { return []; }
   },

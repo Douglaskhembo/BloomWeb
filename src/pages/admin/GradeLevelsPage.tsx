@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-import AddGradeModal, { GradeFormValue } from "@/components/modals/AddGradeModal";
+import AddGradeModal from "@/components/modals/AddGradeModal";
 import { SchoolApi } from "@/services/api";
+import { GradeFormValue } from "@/types/types";
 
-interface GradeLevel { uuid: string; name: string; order: number; streams: number; active: boolean; }
+interface GradeLevel { uuid: string; name: string; displayOrder: number; streams: number; active: boolean; }
 
 const GradeLevelsPage = () => {
   const [grades, setGrades] = useState<GradeLevel[]>([]);
@@ -62,7 +63,7 @@ const GradeLevelsPage = () => {
           <TableBody>
             {grades.map((g) => (
               <TableRow key={g.uuid}>
-                <TableCell className="text-muted-foreground">{g.order}</TableCell>
+                <TableCell className="text-muted-foreground">{g.displayOrder}</TableCell>
                 <TableCell className="font-medium">{g.name}</TableCell>
                 <TableCell className="text-center">{g.streams}</TableCell>
                 <TableCell className="text-center">
@@ -94,7 +95,7 @@ const GradeLevelsPage = () => {
         open={addOpen}
         onOpenChange={(o) => { setAddOpen(o); if (!o) setEditing(null); }}
         defaultOrder={grades.length + 1}
-        initialValues={editing ? { name: editing.name, order: editing.order, streams: editing.streams, status: editing.active ? "active" : "inactive" } : undefined}
+        initialValues={editing ? { name: editing.name, displayOrder: editing.displayOrder, streams: editing.streams, status: editing.active ? "active" : "inactive" } : undefined}
         onSave={handleSave}
       />
     </Card>

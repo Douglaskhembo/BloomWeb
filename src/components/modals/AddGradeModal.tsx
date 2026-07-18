@@ -4,13 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-export type GradeFormValue = {
-  name: string;
-  order: number;
-  streams: number;
-  status: "active" | "inactive";
-};
+import {GradeFormValue} from "@/types/types";
 
 interface AddGradeModalProps {
   open: boolean;
@@ -22,14 +16,14 @@ interface AddGradeModalProps {
 
 const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialValues }: AddGradeModalProps) => {
   const [name, setName] = useState("");
-  const [order, setOrder] = useState<number>(defaultOrder);
+  const [displayOrder, setOrder] = useState<number>(defaultOrder);
   const [streams, setStreams] = useState<number>(1);
   const [status, setStatus] = useState<"active" | "inactive">("active");
 
   useEffect(() => {
     if (open) {
       setName(initialValues?.name ?? "");
-      setOrder(initialValues?.order ?? defaultOrder);
+      setOrder(initialValues?.displayOrder ?? defaultOrder);
       setStreams(initialValues?.streams ?? 1);
       setStatus(initialValues?.status ?? "active");
     }
@@ -37,7 +31,7 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
 
   const submit = () => {
     if (!name.trim()) return;
-    onSave({ name: name.trim(), order, streams, status });
+    onSave({ name: name.trim(), displayOrder, streams, status });
     onOpenChange(false);
   };
 
@@ -56,7 +50,7 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
           </div>
           <div className="space-y-2">
             <Label>Order</Label>
-            <Input type="number" min={1} value={order} onChange={(e) => setOrder(Number(e.target.value))} />
+            <Input type="number" min={1} value={displayOrder} onChange={(e) => setOrder(Number(e.target.value))} />
           </div>
           <div className="space-y-2">
             <Label>Streams</Label>
