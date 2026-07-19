@@ -8,8 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, FileText, Users, CheckCircle, Clock, MoreVertical, ArrowRight, Upload, X, File, ArrowLeft } from "lucide-react";
+import { Plus, FileText, Users, CheckCircle, Clock, ArrowRight, Upload, X, File, ArrowLeft } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { useStudentContext, STAGE_LABELS } from "@/context/StudentContext";
 import { SchoolApi } from "@/services/api";
@@ -361,7 +360,7 @@ const AdmissionsPage = () => {
                           <div key={app.id} className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                <span className="text-sm font-bold text-primary">{app.firstName.charAt(0)}</span>
+                                <span className="text-sm font-bold text-primary">{app.firstName?.charAt(0) ?? "?"}</span>
                               </div>
                               <div>
                                 <p className="font-medium text-sm">{app.firstName} {app.lastName}</p>
@@ -371,17 +370,10 @@ const AdmissionsPage = () => {
                             <div className="flex items-center gap-3">
                               <span className="text-xs text-muted-foreground">{app.createdAt?.split("T")[0]}</span>
                               <Badge variant={STAGE_BADGE[app.stage] ?? "outline"} className="text-[10px]">{STAGE_LABELS[app.stage] ?? app.stage}</Badge>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => handleAdvanceStage(app.uuid, app.stage)}>
-                                    <ArrowRight className="w-4 h-4 mr-2" />
-                                    {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                              <Button size="sm" onClick={() => handleAdvanceStage(app.uuid, app.stage)}>
+                                {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
+                                <ArrowRight className="w-4 h-4 ml-1" />
+                              </Button>
                             </div>
                           </div>
                         ))}

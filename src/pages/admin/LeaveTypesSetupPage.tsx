@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import LeaveTypeFormModal from "@/components/modal/LeaveTypeFormModal";
 import { LeaveTypeFormValues } from "@/components/forms/LeaveTypeForm";
+import { LeaveApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface LeaveType {
   id: number;
@@ -20,14 +22,15 @@ interface LeaveType {
   documentTypes: string[];
 }
 
-const initialLeaveTypes: LeaveType[] = [
-  { id: 1, name: "Annual Leave", days: 21, paid: true, active: true, requiresDocument: false, documentTypes: [] },
-  { id: 2, name: "Sick Leave", days: 10, paid: true, active: true, requiresDocument: true, documentTypes: ["Medical Certificate", "Doctor's Note"] },
-  { id: 3, name: "Maternity Leave", days: 90, paid: true, active: true, requiresDocument: true, documentTypes: ["Medical Certificate"] },
-  { id: 4, name: "Paternity Leave", days: 14, paid: true, active: true, requiresDocument: true, documentTypes: ["Birth Certificate"] },
-  { id: 5, name: "Compassionate Leave", days: 5, paid: true, active: true, requiresDocument: true, documentTypes: ["Death Certificate", "Hospital Admission Letter"] },
-  { id: 6, name: "Study Leave", days: 30, paid: false, active: false, requiresDocument: true, documentTypes: ["Admission Letter", "Exam Timetable"] },
-];
+const toLeaveType = (lt: any): LeaveType => ({
+  id: lt.id,
+  name: lt.name,
+  days: lt.maxDaysPerYear,
+  paid: lt.paid,
+  active: lt.active,
+  requiresDocument: lt.requiresDocument,
+  documentTypes: lt.documentTypes ?? [],
+});
 
 const allDocumentTypes = [
   "Medical Certificate", "Doctor's Note", "Birth Certificate", "Death Certificate",
@@ -39,10 +42,19 @@ const emptyForm: LeaveTypeFormValues = { name: "", days: "", paid: true, require
 
 const LeaveTypesSetupPage = () => {
   const navigate = useNavigate();
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>(initialLeaveTypes);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<LeaveType | null>(null);
   const [form, setForm] = useState<LeaveTypeFormValues>(emptyForm);
+
+  const load = () => {
+    setLoading(true);
+    LeaveApi.getTypes()
+      .then((data) => setLeaveTypes(data.map(toLeaveType)))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
 
   const openAdd = () => { setEditing(null); setForm(emptyForm); setDialogOpen(true); };
   const openEdit = (lt: LeaveType) => {
@@ -51,23 +63,48 @@ const LeaveTypesSetupPage = () => {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim() || !form.days) { toast.error("Please fill in all required fields"); return; }
-    if (editing) {
-      setLeaveTypes((prev) => prev.map((lt) => lt.id === editing.id
-        ? { ...lt, name: form.name, days: Number(form.days), paid: form.paid, requiresDocument: form.requiresDocument, documentTypes: form.requiresDocument ? form.documentTypes : [] }
-        : lt));
-      toast.success("Leave type updated");
-    } else {
-      const newId = Math.max(...leaveTypes.map((l) => l.id), 0) + 1;
-      setLeaveTypes((prev) => [...prev, { id: newId, name: form.name, days: Number(form.days), paid: form.paid, active: true, requiresDocument: form.requiresDocument, documentTypes: form.requiresDocument ? form.documentTypes : [] }]);
-      toast.success("Leave type added");
+    const payload = {
+      name: form.name,
+      maxDaysPerYear: Number(form.days),
+      paid: form.paid,
+      requiresDocument: form.requiresDocument,
+      documentTypes: form.requiresDocument ? form.documentTypes : [],
+    };
+    try {
+      if (editing) {
+        await LeaveApi.updateType(editing.id, payload);
+        toast.success("Leave type updated");
+      } else {
+        await LeaveApi.createType(payload);
+        toast.success("Leave type added");
+      }
+      setDialogOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save leave type"));
     }
-    setDialogOpen(false);
   };
 
-  const toggleActive = (id: number) => setLeaveTypes((prev) => prev.map((lt) => (lt.id === id ? { ...lt, active: !lt.active } : lt)));
-  const handleDelete = (id: number) => { setLeaveTypes((prev) => prev.filter((lt) => lt.id !== id)); toast.success("Leave type deleted"); };
+  const toggleActive = async (id: number) => {
+    try {
+      await LeaveApi.toggleTypeStatus(id);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to update leave type status"));
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await LeaveApi.deleteType(id);
+      toast.success("Leave type deleted");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete leave type"));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -90,6 +127,9 @@ const LeaveTypesSetupPage = () => {
           <CardDescription>{leaveTypes.filter((l) => l.active).length} active · {leaveTypes.length} total</CardDescription>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading leave types...</p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -103,7 +143,9 @@ const LeaveTypesSetupPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {leaveTypes.map((lt) => (
+              {leaveTypes.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No leave types configured yet.</TableCell></TableRow>
+              ) : leaveTypes.map((lt) => (
                 <TableRow key={lt.id}>
                   <TableCell className="font-medium">{lt.name}</TableCell>
                   <TableCell className="text-center">{lt.days}</TableCell>
@@ -143,6 +185,7 @@ const LeaveTypesSetupPage = () => {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 

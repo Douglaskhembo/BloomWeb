@@ -15,6 +15,7 @@ export interface AuthUser {
   enable2FA: boolean;
   token: string;
   redirectPath: string;
+  profileRef?: string;
 }
 
 interface AuthContextType {

@@ -222,7 +222,7 @@ const TeachersPage = () => {
                   <TableRow><TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-8">No staff found</TableCell></TableRow>
                 ) : filteredStaff.map(s => (
                   <TableRow key={s.uuid}>
-                    <TableCell className="font-mono text-xs">{s.staffId ?? s.uuid.slice(0, 8)}</TableCell>
+                    <TableCell className="font-mono text-xs">{s.staffId ?? s.uuid?.slice(0, 8) ?? "—"}</TableCell>
                     <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                     <TableCell><Badge variant="outline" className="text-[10px]">{STAFF_TYPE_LABELS[s.staffType] ?? s.staffType}</Badge></TableCell>
                     <TableCell className="text-xs">{s.employmentType}{s.contractPeriodMonths ? ` (${s.contractPeriodMonths}mo)` : ""}</TableCell>

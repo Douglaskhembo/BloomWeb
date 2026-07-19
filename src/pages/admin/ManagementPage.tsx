@@ -1,6 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarDays, DollarSign, GraduationCap, BookOpen, Calculator, Award, Wallet } from "lucide-react";
+import { CalendarDays, DollarSign, GraduationCap, BookOpen, Calculator, Award, Wallet, Fingerprint } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const managementCards = [
@@ -69,6 +69,17 @@ const managementCards = [
     activeCount: 0,
     totalCount: 0,
     totalLabel: "records",
+  },
+  {
+    to: "/admin/setup-biometrics",
+    icon: Fingerprint,
+    iconBg: "bg-sky-500/10",
+    iconColor: "text-sky-600",
+    title: "Biometrics & Devices",
+    description: "Enroll staff/student fingerprints, register devices, assign class teachers",
+    activeCount: 0,
+    totalCount: 0,
+    totalLabel: "enrolled",
   },
 ];
 

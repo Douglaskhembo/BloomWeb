@@ -4,10 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Network, Plus, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import AddDepartmentModal, { DepartmentFormValue } from "@/components/modals/AddDepartmentModal";
 import { SchoolApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-interface Department { uuid: string; name: string; code: string; head: string; active: boolean; }
+interface Department {
+  uuid: string;
+  name: string;
+  code: string;
+  head: { uuid: string; firstName: string; lastName: string } | null;
+  status: "ACTIVE" | "INACTIVE";
+}
 
 const DepartmentsPage = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -18,23 +26,36 @@ const DepartmentsPage = () => {
   useEffect(() => { load(); }, []);
 
   const handleSave = async (v: DepartmentFormValue) => {
-    if (editing) {
-      await SchoolApi.updateDepartment(editing.uuid, v);
-    } else {
-      await SchoolApi.createDepartment(v);
+    try {
+      if (editing) {
+        await SchoolApi.updateDepartment(editing.uuid, v);
+      } else {
+        await SchoolApi.createDepartment(v);
+      }
+      setEditing(null);
+      toast.success(editing ? "Department updated" : "Department created");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save department"));
     }
-    setEditing(null);
-    load();
   };
 
   const handleToggle = async (uuid: string) => {
-    await SchoolApi.toggleDepartmentStatus(uuid);
-    load();
+    try {
+      await SchoolApi.toggleDepartmentStatus(uuid);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to update department status"));
+    }
   };
 
   const handleDelete = async (uuid: string) => {
-    await SchoolApi.deleteDepartment(uuid);
-    load();
+    try {
+      await SchoolApi.deleteDepartment(uuid);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete department"));
+    }
   };
 
   return (
@@ -62,18 +83,20 @@ const DepartmentsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {departments.map((d) => (
+            {departments.map((d) => {
+              const active = d.status === "ACTIVE";
+              return (
               <TableRow key={d.uuid}>
                 <TableCell className="font-medium">{d.name}</TableCell>
                 <TableCell className="text-muted-foreground">{d.code}</TableCell>
-                <TableCell>{d.head}</TableCell>
+                <TableCell>{d.head ? `${d.head.firstName} ${d.head.lastName}` : "—"}</TableCell>
                 <TableCell className="text-center">
-                  <Badge variant={d.active ? "default" : "secondary"}>{d.active ? "Active" : "Inactive"}</Badge>
+                  <Badge variant={active ? "default" : "secondary"}>{active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
                     <Button variant="ghost" size="sm" className="h-8" onClick={() => handleToggle(d.uuid)}>
-                      {d.active ? "Deactivate" : "Activate"}
+                      {active ? "Deactivate" : "Activate"}
                     </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(d); setAddOpen(true); }}>
                       <Pencil className="w-4 h-4" />
@@ -84,7 +107,8 @@ const DepartmentsPage = () => {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
             {departments.length === 0 && (
               <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No departments yet.</TableCell></TableRow>
             )}
@@ -95,7 +119,7 @@ const DepartmentsPage = () => {
       <AddDepartmentModal
         open={addOpen}
         onOpenChange={(o) => { setAddOpen(o); if (!o) setEditing(null); }}
-        initialValues={editing ? { name: editing.name, code: editing.code, head: editing.head, status: editing.active ? "active" : "inactive" } : undefined}
+        initialValues={editing ? { name: editing.name, code: editing.code, headUuid: editing.head?.uuid ?? null, status: editing.status === "ACTIVE" ? "active" : "inactive" } : undefined}
         onSave={handleSave}
       />
     </Card>

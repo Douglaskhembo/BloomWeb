@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StaffApi } from "@/services/api";
 
 export type DepartmentFormValue = {
   name: string;
   code: string;
-  head: string;
+  headUuid: string | null;
   status: "active" | "inactive";
 };
 
@@ -19,24 +20,30 @@ interface AddDepartmentModalProps {
   initialValues?: DepartmentFormValue;
 }
 
+interface TeachingStaff { uuid: string; firstName: string; lastName: string; }
+
 const AddDepartmentModal = ({ open, onOpenChange, onSave, initialValues }: AddDepartmentModalProps) => {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const [head, setHead] = useState("");
+  const [headUuid, setHeadUuid] = useState("");
   const [status, setStatus] = useState<"active" | "inactive">("active");
+  const [teachingStaff, setTeachingStaff] = useState<TeachingStaff[]>([]);
 
   useEffect(() => {
     if (open) {
       setName(initialValues?.name ?? "");
       setCode(initialValues?.code ?? "");
-      setHead(initialValues?.head ?? "");
+      setHeadUuid(initialValues?.headUuid ?? "");
       setStatus(initialValues?.status ?? "active");
+      StaffApi.getAll().then((data) =>
+        setTeachingStaff((Array.isArray(data) ? data : []).filter((s) => s.staffType === "TEACHING"))
+      );
     }
   }, [open, initialValues]);
 
   const submit = () => {
-    if (!name.trim()) return;
-    onSave({ name: name.trim(), code: code.trim().toUpperCase(), head: head.trim(), status });
+    if (!name.trim() || !code.trim()) return;
+    onSave({ name: name.trim(), code: code.trim().toUpperCase(), headUuid: headUuid || null, status });
     onOpenChange(false);
   };
 
@@ -54,7 +61,7 @@ const AddDepartmentModal = ({ open, onOpenChange, onSave, initialValues }: AddDe
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Academics" />
           </div>
           <div className="space-y-2">
-            <Label>Code</Label>
+            <Label>Code *</Label>
             <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. ACAD" />
           </div>
           <div className="space-y-2">
@@ -69,7 +76,19 @@ const AddDepartmentModal = ({ open, onOpenChange, onSave, initialValues }: AddDe
           </div>
           <div className="space-y-2 col-span-2">
             <Label>Department Head</Label>
-            <Input value={head} onChange={(e) => setHead(e.target.value)} placeholder="e.g. Jane Mwangi" />
+            <Select value={headUuid} onValueChange={setHeadUuid}>
+              <SelectTrigger><SelectValue placeholder="Select a teaching staff member" /></SelectTrigger>
+              <SelectContent>
+                {teachingStaff.map((s) => (
+                  <SelectItem key={s.uuid} value={s.uuid}>
+                    {s.firstName} {s.lastName}
+                  </SelectItem>
+                ))}
+                {teachingStaff.length === 0 && (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground">No teaching staff found</div>
+                )}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

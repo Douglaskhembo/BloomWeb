@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,40 +10,56 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, CalendarDays, CheckCircle, Clock, Upload, FileText, X } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { LeaveApi, StaffApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-interface LeaveTypeConfig {
-  value: string;
-  label: string;
-  requiresDocument: boolean;
-  acceptedDocTypes: string[];
-}
-
-const leaveTypeConfigs: LeaveTypeConfig[] = [
-  { value: "annual", label: "Annual Leave", requiresDocument: false, acceptedDocTypes: [] },
-  { value: "sick", label: "Sick Leave", requiresDocument: true, acceptedDocTypes: ["Medical Certificate", "Doctor's Note"] },
-  { value: "personal", label: "Personal Leave", requiresDocument: false, acceptedDocTypes: [] },
-  { value: "maternity", label: "Maternity Leave", requiresDocument: true, acceptedDocTypes: ["Medical Certificate"] },
-  { value: "paternity", label: "Paternity Leave", requiresDocument: true, acceptedDocTypes: ["Birth Certificate"] },
-  { value: "compassionate", label: "Compassionate Leave", requiresDocument: true, acceptedDocTypes: ["Death Certificate", "Hospital Admission Letter"] },
-  { value: "study", label: "Study Leave", requiresDocument: true, acceptedDocTypes: ["Admission Letter", "Exam Timetable"] },
-];
-
-const myLeaves = [
-  { type: "Sick Leave", from: "2026-02-10", to: "2026-02-11", days: 2, status: "Approved", document: "medical_cert.pdf" },
-  { type: "Personal", from: "2026-01-20", to: "2026-01-20", days: 1, status: "Approved", document: null },
-  { type: "Annual Leave", from: "2026-04-15", to: "2026-04-18", days: 4, status: "Pending", document: null },
-  { type: "Study Leave", from: "2026-05-01", to: "2026-05-10", days: 10, status: "Pending", document: "admission_letter.pdf" },
-  { type: "Compassionate Leave", from: "2025-11-05", to: "2025-11-07", days: 3, status: "Rejected", document: null },
-];
+const STATUS_LABELS: Record<string, string> = { PENDING: "Pending", APPROVED: "Approved", REJECTED: "Rejected" };
 
 const TeacherLeave = () => {
-  const [selectedLeaveType, setSelectedLeaveType] = useState("");
+  const { user } = useAuth();
+  const [staff, setStaff] = useState<any | null>(null);
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([]);
+  const [myLeaves, setMyLeaves] = useState<any[]>([]);
+  const [balances, setBalances] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [reason, setReason] = useState("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [selectedDocType, setSelectedDocType] = useState("");
 
-  const currentConfig = leaveTypeConfigs.find((c) => c.value === selectedLeaveType);
-  const requiresDoc = currentConfig?.requiresDocument ?? false;
-  const acceptedDocs = currentConfig?.acceptedDocTypes ?? [];
+  const currentType = leaveTypes.find((t) => String(t.id) === selectedLeaveTypeId);
+  const requiresDoc = currentType?.requiresDocument ?? false;
+  const acceptedDocs: string[] = currentType?.documentTypes ?? [];
+
+  const load = async (staffId: string) => {
+    setLoading(true);
+    try {
+      const [types, leaves, bal] = await Promise.all([
+        LeaveApi.getTypes(),
+        LeaveApi.getRequests(staffId),
+        LeaveApi.getBalances(staffId),
+      ]);
+      setLeaveTypes(types.filter((t) => t.active));
+      setMyLeaves(leaves);
+      setBalances(bal);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.profileRef) return;
+    StaffApi.getByUuid(user.profileRef).then((s) => {
+      setStaff(s);
+      load(s.staffId);
+    }).catch(() => setStaff(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.profileRef]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -56,9 +72,26 @@ const TeacherLeave = () => {
     }
   };
 
-  const handleSubmit = () => {
-    if (!selectedLeaveType) {
+  const resetForm = () => {
+    setSelectedLeaveTypeId("");
+    setFromDate("");
+    setToDate("");
+    setReason("");
+    setUploadedFile(null);
+    setSelectedDocType("");
+  };
+
+  const handleSubmit = async () => {
+    if (!staff) {
+      toast.error("Your staff profile could not be found");
+      return;
+    }
+    if (!selectedLeaveTypeId) {
       toast.error("Please select a leave type");
+      return;
+    }
+    if (!fromDate || !toDate) {
+      toast.error("Please select the leave dates");
       return;
     }
     if (requiresDoc && !uploadedFile) {
@@ -69,11 +102,32 @@ const TeacherLeave = () => {
       toast.error("Please select the document type");
       return;
     }
-    toast.success("Leave request submitted successfully");
-    setSelectedLeaveType("");
-    setUploadedFile(null);
-    setSelectedDocType("");
+    setSubmitting(true);
+    try {
+      await LeaveApi.createRequest({
+        staffId: staff.staffId,
+        staffName: `${staff.firstName} ${staff.lastName}`,
+        leaveTypeId: Number(selectedLeaveTypeId),
+        fromDate,
+        toDate,
+        reason,
+        documentName: uploadedFile?.name,
+        documentType: selectedDocType || undefined,
+      });
+      toast.success("Leave request submitted successfully");
+      resetForm();
+      load(staff.staffId);
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to submit leave request"));
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const usedThisYear = myLeaves
+    .filter((l) => l.status === "APPROVED" && new Date(l.fromDate).getFullYear() === new Date().getFullYear())
+    .reduce((sum, l) => sum + (l.days ?? 0), 0);
+  const pendingCount = myLeaves.filter((l) => l.status === "PENDING").length;
 
   return (
     <div className="space-y-6">
@@ -83,10 +137,11 @@ const TeacherLeave = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="Annual Leave" value="12 days" change="Remaining" changeType="neutral" icon={CalendarDays} iconColor="bg-primary/10 text-primary" />
-        <StatCard title="Sick Leave" value="8 days" change="Remaining" changeType="neutral" icon={Calendar} iconColor="bg-info/10 text-info" />
-        <StatCard title="Used This Year" value="3 days" icon={CheckCircle} iconColor="bg-success/10 text-success" />
-        <StatCard title="Pending" value={0} icon={Clock} iconColor="bg-warning/10 text-warning" />
+        {balances.slice(0, 2).map((b) => (
+          <StatCard key={b.leaveTypeId} title={b.leaveTypeName} value={`${b.remainingDays} days`} change="Remaining" changeType="neutral" icon={CalendarDays} iconColor="bg-primary/10 text-primary" />
+        ))}
+        <StatCard title="Used This Year" value={`${usedThisYear} days`} icon={CheckCircle} iconColor="bg-success/10 text-success" />
+        <StatCard title="Pending" value={pendingCount} icon={Clock} iconColor="bg-warning/10 text-warning" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -98,14 +153,14 @@ const TeacherLeave = () => {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Leave Type</Label>
-              <Select value={selectedLeaveType} onValueChange={(v) => { setSelectedLeaveType(v); setUploadedFile(null); setSelectedDocType(""); }}>
+              <Select value={selectedLeaveTypeId} onValueChange={(v) => { setSelectedLeaveTypeId(v); setUploadedFile(null); setSelectedDocType(""); }}>
                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                 <SelectContent>
-                  {leaveTypeConfigs.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>
+                  {leaveTypes.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
                       <span className="flex items-center gap-2">
-                        {c.label}
-                        {c.requiresDocument && <FileText className="w-3 h-3 text-amber-500" />}
+                        {t.name}
+                        {t.requiresDocument && <FileText className="w-3 h-3 text-amber-500" />}
                       </span>
                     </SelectItem>
                   ))}
@@ -115,16 +170,16 @@ const TeacherLeave = () => {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>From</Label>
-                <Input type="date" />
+                <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>To</Label>
-                <Input type="date" />
+                <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Reason</Label>
-              <Textarea placeholder="Brief reason for leave..." rows={3} />
+              <Textarea placeholder="Brief reason for leave..." rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
             </div>
 
             {/* Document upload section */}
@@ -169,11 +224,14 @@ const TeacherLeave = () => {
                       <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileChange} />
                     </label>
                   )}
+                  <p className="text-[11px] text-muted-foreground">Only the file name is recorded — this project doesn't yet store the uploaded file itself.</p>
                 </div>
               </div>
             )}
 
-            <Button className="w-full" onClick={handleSubmit}>Submit Request</Button>
+            <Button className="w-full" disabled={submitting || !staff} onClick={handleSubmit}>
+              {submitting ? "Submitting..." : "Submit Request"}
+            </Button>
           </CardContent>
         </Card>
 
@@ -182,37 +240,40 @@ const TeacherLeave = () => {
             <CardTitle className="text-lg">Leave History</CardTitle>
           </CardHeader>
           <CardContent>
+            {loading ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>
+            ) : (
             <Tabs defaultValue="all">
               <TabsList className="w-full grid grid-cols-4">
                 <TabsTrigger value="all">All ({myLeaves.length})</TabsTrigger>
-                <TabsTrigger value="pending">Pending ({myLeaves.filter(l => l.status === "Pending").length})</TabsTrigger>
-                <TabsTrigger value="approved">Approved ({myLeaves.filter(l => l.status === "Approved").length})</TabsTrigger>
-                <TabsTrigger value="rejected">Rejected ({myLeaves.filter(l => l.status === "Rejected").length})</TabsTrigger>
+                <TabsTrigger value="pending">Pending ({myLeaves.filter(l => l.status === "PENDING").length})</TabsTrigger>
+                <TabsTrigger value="approved">Approved ({myLeaves.filter(l => l.status === "APPROVED").length})</TabsTrigger>
+                <TabsTrigger value="rejected">Rejected ({myLeaves.filter(l => l.status === "REJECTED").length})</TabsTrigger>
               </TabsList>
-              {["all", "pending", "approved", "rejected"].map((tab) => {
+              {(["all", "pending", "approved", "rejected"] as const).map((tab) => {
                 const filtered = tab === "all" ? myLeaves : myLeaves.filter((l) => l.status.toLowerCase() === tab);
                 return (
                   <TabsContent key={tab} value={tab} className="space-y-3 mt-3">
                     {filtered.length === 0 ? (
                       <p className="text-sm text-muted-foreground text-center py-4">No {tab === "all" ? "" : tab} leave requests</p>
                     ) : (
-                      filtered.map((l, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      filtered.map((l) => (
+                        <div key={l.uuid} className="flex items-center justify-between p-3 rounded-lg border border-border">
                           <div>
-                            <p className="text-sm font-medium">{l.type}</p>
-                            <p className="text-xs text-muted-foreground">{l.from} → {l.to} ({l.days} day{l.days > 1 ? "s" : ""})</p>
-                            {l.document && (
+                            <p className="text-sm font-medium">{l.leaveType?.name}</p>
+                            <p className="text-xs text-muted-foreground">{l.fromDate} → {l.toDate} ({l.days} day{l.days > 1 ? "s" : ""})</p>
+                            {l.documentName && (
                               <div className="flex items-center gap-1 mt-1">
                                 <FileText className="w-3 h-3 text-muted-foreground" />
-                                <span className="text-xs text-primary cursor-pointer hover:underline">{l.document}</span>
+                                <span className="text-xs text-muted-foreground">{l.documentName}</span>
                               </div>
                             )}
                           </div>
                           <Badge
-                            variant={l.status === "Approved" ? "default" : l.status === "Pending" ? "secondary" : "destructive"}
+                            variant={l.status === "APPROVED" ? "default" : l.status === "PENDING" ? "secondary" : "destructive"}
                             className="text-[10px]"
                           >
-                            {l.status}
+                            {STATUS_LABELS[l.status] ?? l.status}
                           </Badge>
                         </div>
                       ))
@@ -221,6 +282,7 @@ const TeacherLeave = () => {
                 );
               })}
             </Tabs>
+            )}
           </CardContent>
         </Card>
       </div>

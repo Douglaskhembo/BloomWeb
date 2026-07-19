@@ -43,6 +43,8 @@ import SubjectsSetupPage from "./pages/admin/SubjectsSetupPage";
 import PayrollSetupPage from "./pages/admin/PayrollSetupPage";
 import GradingSetupPage from "./pages/admin/GradingSetupPage";
 import StaffSalariesPage from "./pages/admin/StaffSalariesPage";
+import BiometricsSetupPage from "./pages/admin/BiometricsSetupPage";
+import AttendancePage from "./pages/admin/AttendancePage";
 // Parent
 import ParentDashboard from "./pages/parent/ParentDashboard";
 import ParentGrades from "./pages/parent/ParentGrades";
@@ -56,6 +58,8 @@ import TeacherClasses from "./pages/teacher/TeacherClasses";
 import TeacherTimetable from "./pages/teacher/TeacherTimetable";
 import TeacherLeave from "./pages/teacher/TeacherLeave";
 import TeacherPayslips from "./pages/teacher/TeacherPayslips";
+import TeacherAttendance from "./pages/teacher/TeacherAttendance";
+import ParentAttendance from "./pages/parent/ParentAttendance";
 import TermReportsPage from "./pages/shared/TermReportsPage";
 
 const queryClient = new QueryClient();
@@ -109,6 +113,8 @@ function AppRoutes() {
         <Route path="setup-subjects" element={<SubjectsSetupPage />} />
         <Route path="setup-payroll" element={<PayrollSetupPage />} />
         <Route path="setup-grading" element={<GradingSetupPage />} />
+        <Route path="setup-biometrics" element={<BiometricsSetupPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
         <Route path="student-performance" element={<StudentPerformancePage />} />
         <Route path="subject-performance" element={<SubjectPerformancePage />} />
         <Route path="grade-comparison" element={<GradeComparisonPage />} />
@@ -118,6 +124,7 @@ function AppRoutes() {
       {/* Parent routes */}
       <Route path="/parent" element={<RequireAuth><AppLayout role="parent" /></RequireAuth>}>
         <Route index element={<ParentDashboard />} />
+        <Route path="attendance" element={<ParentAttendance />} />
         <Route path="grades" element={<ParentGrades />} />
         <Route path="fees" element={<ParentFees />} />
         <Route path="calendar" element={<ParentCalendar />} />
@@ -129,6 +136,7 @@ function AppRoutes() {
       {/* Teacher routes */}
       <Route path="/teacher" element={<RequireAuth><AppLayout role="teacher" /></RequireAuth>}>
         <Route index element={<TeacherDashboard />} />
+        <Route path="attendance" element={<TeacherAttendance />} />
         <Route path="classes" element={<TeacherClasses />} />
         <Route path="timetable" element={<TeacherTimetable />} />
         <Route path="leave" element={<TeacherLeave />} />

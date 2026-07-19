@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, GraduationCap, DollarSign, BookOpen, Bus,
   MessageSquare, Calendar, ClipboardList, Settings, ChevronLeft, School,
   UserCircle, Briefcase, CalendarDays, Receipt, Store, CreditCard,
-  ChevronDown, Package, ShieldCheck, UserCog, BarChart3, FileText, Wallet,
+  ChevronDown, Package, ShieldCheck, UserCog, BarChart3, FileText, Wallet, Fingerprint,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ interface NavItem {
 
 const adminNavItems: NavItem[] = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/admin/attendance", icon: Fingerprint, label: "Attendance" },
   {
     to: "", icon: Users, label: "Students & Admissions",
     children: [
@@ -83,6 +84,7 @@ const adminNavItems: NavItem[] = [
 
 const parentNavItems: NavItem[] = [
   { to: "/parent", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/parent/attendance", icon: Fingerprint, label: "Attendance" },
   { to: "/parent/grades", icon: GraduationCap, label: "Grades" },
   { to: "/parent/fees", icon: DollarSign, label: "Fees" },
   { to: "/parent/term-reports", icon: FileText, label: "Term Reports" },
@@ -93,6 +95,7 @@ const parentNavItems: NavItem[] = [
 
 const teacherNavItems: NavItem[] = [
   { to: "/teacher", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/teacher/attendance", icon: Fingerprint, label: "Attendance" },
   { to: "/teacher/classes", icon: BookOpen, label: "My Classes" },
   { to: "/teacher/timetable", icon: Calendar, label: "Timetable" },
   { to: "/teacher/term-reports", icon: FileText, label: "Term Reports" },

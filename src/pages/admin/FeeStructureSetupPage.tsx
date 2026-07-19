@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -36,15 +36,8 @@ import FeeItemFormModal from "@/components/modal/FeeItemFormModal";
 import { FeeItemFormValues } from "@/components/forms/FeeItemForm";
 import { useToast } from "@/hooks/use-toast";
 import { GRADES } from "@/data/feesMock";
-
-const initialItems = [
-  { id: 1, name: "Tuition Fee", grade: "All Grades", amount: 30000, term: "Per Term", active: true },
-  { id: 2, name: "Activity Fee", grade: "All Grades", amount: 8000, term: "Per Term", active: true },
-  { id: 3, name: "Transport Fee", grade: "All Grades", amount: 7000, term: "Per Term", active: true },
-  { id: 4, name: "Lunch Program", grade: "All Grades", amount: 12000, term: "Per Term", active: true },
-  { id: 5, name: "Exam Fee", grade: "Grade 7-9", amount: 3000, term: "Per Term", active: true },
-  { id: 6, name: "Boarding Fee", grade: "Grade 7-9", amount: 25000, term: "Per Term", active: false },
-];
+import { FeeApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 const emptyForm: FeeItemFormValues = { name: "", grade: "All Grades", amount: 0, term: "Per Term", active: true };
 const TERMS = ["Term 1", "Term 2", "Term 3"] as const;
@@ -98,115 +91,66 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleString();
 const CURRENT_YEAR = new Date().getFullYear();
 const ACADEMIC_YEARS: number[] = Array.from({ length: 5 }, (_, idx) => CURRENT_YEAR + 1 - idx); // e.g. 2027..2023
 
-const buildLines = (overrides: Partial<Record<number, { enabled?: boolean; amount?: number }>> = {}): GradeStatementLine[] =>
-  initialItems.map((item) => ({
-    itemId: item.id,
-    enabled: overrides[item.id]?.enabled ?? item.active,
-    amount: overrides[item.id]?.amount ?? item.amount,
-  }));
-
-const isoDaysAgo = (days: number, hour = 9) => {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  date.setHours(hour, 0, 0, 0);
-  return date.toISOString();
+// --- Map backend responses onto the frontend's existing shapes ---
+const STATUS_FROM_BACKEND: Record<string, StructureStatus> = {
+  DRAFT: "Draft",
+  PENDING_APPROVAL: "Pending Approval",
+  REJECTED: "Rejected",
+  APPROVED: "Approved",
 };
 
-// --- Seed mock data so Approver and Approved tabs are not empty on first load ---
-const approvedGrade3Term1Lines = buildLines({ 5: { enabled: false }, 6: { enabled: false } });
-const approvedGrade3Term1: FeeStructureRecord = {
-  id: "FS-APR-0001",
-  version: 1,
-  academicYear: CURRENT_YEAR - 1,
-  grade: "Grade 3",
-  term: "Term 1",
-  status: "Approved",
-  lines: approvedGrade3Term1Lines,
-  baseline: buildLines({ 1: { amount: 28000 }, 5: { enabled: false }, 6: { enabled: false } }),
-  maker: "Maker",
-  submittedAt: isoDaysAgo(14),
-  updatedAt: isoDaysAgo(12, 11),
-  approver: "Approver",
-  reviewedAt: isoDaysAgo(12, 11),
-  note: "Annual tuition adjustment for Grade 3, Term 1.",
+const AUDIT_ACTION_FROM_BACKEND: Record<string, AuditEntry["action"]> = {
+  SAVED_DRAFT: "Saved Draft",
+  SUBMITTED: "Submitted",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  REWORKED: "Reworked",
 };
 
-const approvedGrade7Term1Lines = buildLines({ 6: { enabled: true, amount: 25000 } });
-const approvedGrade7Term1: FeeStructureRecord = {
-  id: "FS-APR-0002",
-  version: 2,
-  academicYear: CURRENT_YEAR - 1,
-  grade: "Grade 7",
-  term: "Term 1",
-  status: "Approved",
-  lines: approvedGrade7Term1Lines,
-  baseline: buildLines({ 6: { enabled: false } }),
-  maker: "Maker",
-  submittedAt: isoDaysAgo(8),
-  updatedAt: isoDaysAgo(7, 14),
-  approver: "Administrator",
-  reviewedAt: isoDaysAgo(7, 14),
-  note: "Enable Boarding Fee for Grade 7 Term 1.",
-};
+const toFeeItem = (raw: any) => ({
+  id: raw.id as number,
+  name: raw.name as string,
+  grade: raw.grade ?? "All Grades",
+  amount: raw.amount as number,
+  term: raw.term ?? "Per Term",
+  active: Boolean(raw.active),
+});
 
-const pendingGrade4Term2Lines = buildLines({ 1: { amount: 32000 }, 4: { amount: 13500 } });
-const pendingGrade4Term2: FeeStructureRecord = {
-  id: "FS-PEN-0001",
-  version: 1,
-  academicYear: CURRENT_YEAR,
-  grade: "Grade 4",
-  term: "Term 2",
-  status: "Pending Approval",
-  lines: pendingGrade4Term2Lines,
-  baseline: buildLines({ 5: { enabled: false }, 6: { enabled: false } }),
-  maker: "Maker",
-  submittedAt: isoDaysAgo(2, 10),
-  updatedAt: isoDaysAgo(2, 10),
-  note: "Term 2 tuition uplift and lunch programme cost review.",
-};
+const toStructureRecord = (raw: any): FeeStructureRecord => ({
+  id: raw.uuid,
+  version: raw.version,
+  academicYear: raw.academicYear,
+  grade: raw.grade,
+  term: raw.term as TermKey,
+  status: STATUS_FROM_BACKEND[raw.status] ?? "Draft",
+  lines: raw.lines ?? [],
+  baseline: raw.baseline ?? [],
+  maker: raw.maker as Role,
+  submittedAt: raw.submittedAt,
+  updatedAt: raw.updatedAt,
+  note: raw.note ?? undefined,
+  approver: raw.approver ?? undefined,
+  reviewedAt: raw.reviewedAt ?? undefined,
+  rejectionReason: raw.rejectionReason ?? undefined,
+});
 
-const pendingGrade8Term2Lines = buildLines({ 1: { amount: 34000 }, 5: { amount: 4000 }, 6: { enabled: true } });
-const pendingGrade8Term2: FeeStructureRecord = {
-  id: "FS-PEN-0002",
-  version: 3,
-  academicYear: CURRENT_YEAR,
-  grade: "Grade 8",
-  term: "Term 2",
-  status: "Pending Approval",
-  lines: pendingGrade8Term2Lines,
-  baseline: buildLines({ 6: { enabled: true, amount: 25000 } }),
-  maker: "Administrator",
-  submittedAt: isoDaysAgo(1, 15),
-  updatedAt: isoDaysAgo(1, 15),
-  note: "Exam fee uplift and confirm boarding fee for senior class.",
-};
-
-const seedStructures: FeeStructureRecord[] = [
-  pendingGrade8Term2,
-  pendingGrade4Term2,
-  approvedGrade7Term1,
-  approvedGrade3Term1,
-];
-
-const seedLiveMap: GradeStatementMap = {
-  "Grade 3": { "Term 1": approvedGrade3Term1Lines } as Record<TermKey, GradeStatementLine[]>,
-  "Grade 7": { "Term 1": approvedGrade7Term1Lines } as Record<TermKey, GradeStatementLine[]>,
-};
-
-const seedAudit: AuditEntry[] = [
-  { id: "AUD-1001", at: isoDaysAgo(14), actor: "Maker", action: "Submitted", grade: "Grade 3", term: "Term 1", comment: "Initial Grade 3 Term 1 structure." },
-  { id: "AUD-1002", at: isoDaysAgo(12, 11), actor: "Approver", action: "Approved", grade: "Grade 3", term: "Term 1" },
-  { id: "AUD-1003", at: isoDaysAgo(8), actor: "Maker", action: "Submitted", grade: "Grade 7", term: "Term 1", comment: "Add boarding fee for Grade 7." },
-  { id: "AUD-1004", at: isoDaysAgo(7, 14), actor: "Administrator", action: "Approved", grade: "Grade 7", term: "Term 1" },
-  { id: "AUD-1005", at: isoDaysAgo(2, 10), actor: "Maker", action: "Submitted", grade: "Grade 4", term: "Term 2", comment: "Term 2 tuition uplift." },
-  { id: "AUD-1006", at: isoDaysAgo(1, 15), actor: "Administrator", action: "Submitted", grade: "Grade 8", term: "Term 2", comment: "Exam fee uplift." },
-];
+const toAuditEntry = (raw: any): AuditEntry => ({
+  id: raw.uuid,
+  at: raw.at,
+  actor: raw.actor as Role,
+  action: AUDIT_ACTION_FROM_BACKEND[raw.action] ?? "Submitted",
+  academicYear: raw.academicYear ?? undefined,
+  grade: raw.grade,
+  term: raw.term as TermKey,
+  comment: raw.comment ?? undefined,
+});
 
 const FeeStructureSetupPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [feeItems, setFeeItems] = useState(initialItems);
+  const [feeItems, setFeeItems] = useState<ReturnType<typeof toFeeItem>[]>([]);
+  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FeeItemFormValues>(emptyForm);
@@ -216,11 +160,10 @@ const FeeStructureSetupPage = () => {
   const [selectedGrade, setSelectedGrade] = useState<string>(GRADES[0]);
   const [selectedTerm, setSelectedTerm] = useState<TermKey>("Term 1");
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
-  const [liveMap, setLiveMap] = useState<GradeStatementMap>(seedLiveMap);
   const [draftLines, setDraftLines] = useState<GradeStatementLine[] | null>(null);
   const [editingRejectedId, setEditingRejectedId] = useState<string | null>(null);
-  const [structures, setStructures] = useState<FeeStructureRecord[]>(seedStructures);
-  const [audit, setAudit] = useState<AuditEntry[]>(seedAudit);
+  const [structures, setStructures] = useState<FeeStructureRecord[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [submitNote, setSubmitNote] = useState("");
   const [reviewing, setReviewing] = useState<FeeStructureRecord | null>(null);
@@ -243,6 +186,35 @@ const FeeStructureSetupPage = () => {
   const [draftSearch, setDraftSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [items, rawStructures, rawAudit] = await Promise.all([
+        FeeApi.getItems(),
+        FeeApi.getStructures(),
+        FeeApi.getStructureAudit(),
+      ]);
+      setFeeItems(items.map(toFeeItem));
+      setStructures(rawStructures.map(toStructureRecord));
+      setAudit(rawAudit.map(toAuditEntry));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  // Latest approved lines per grade/term, derived from the loaded structures.
+  const liveMap = useMemo<GradeStatementMap>(() => {
+    const map: GradeStatementMap = {};
+    const approvedByAge = [...structures]
+      .filter((record) => record.status === "Approved")
+      .sort((a, b) => new Date(a.reviewedAt ?? a.updatedAt).getTime() - new Date(b.reviewedAt ?? b.updatedAt).getTime());
+    for (const record of approvedByAge) {
+      map[record.grade] = { ...(map[record.grade] ?? {}), [record.term]: record.lines } as Record<TermKey, GradeStatementLine[]>;
+    }
+    return map;
+  }, [structures]);
 
   const isMaker = role === "Maker" || role === "Administrator";
   const isApprover = role === "Approver" || role === "Administrator";
@@ -267,7 +239,15 @@ const FeeStructureSetupPage = () => {
     [liveMap, selectedGrade, selectedTerm, feeItems],
   );
   const currentLines = draftLines ?? baseLines;
-  const isDirty = JSON.stringify(currentLines) !== JSON.stringify(baseLines) || Boolean(editingRejectedId);
+  // For a grade/term with no approved structure yet, baseLines is just a synthetic default
+  // (derived from currently-active fee items) — comparing against it would disable the button
+  // the moment a maker's selection happens to match those defaults. In that case "dirty" should
+  // mean "something is actually selected", not "differs from the synthetic default".
+  const hasApprovedBaseline = Boolean(liveMap[selectedGrade]?.[selectedTerm]?.length);
+  const hasSelection = currentLines.some((line) => line.enabled);
+  const isDirty = Boolean(editingRejectedId) || (hasApprovedBaseline
+    ? JSON.stringify(currentLines) !== JSON.stringify(baseLines)
+    : hasSelection);
   const statementTotal = currentLines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
 
   const pendingStructures = structures.filter((record) => record.status === "Pending Approval");
@@ -398,10 +378,6 @@ const FeeStructureSetupPage = () => {
     });
   };
 
-  const addAudit = (entry: Omit<AuditEntry, "id" | "at">) => {
-    setAudit((previous) => [{ id: `AUD-${Date.now()}`, at: new Date().toISOString(), ...entry }, ...previous]);
-  };
-
   const updateLine = (itemId: number, patch: Partial<GradeStatementLine>) => {
     if (!isMaker || isReadOnly) return;
     setDraftLines(currentLines.map((line) => (line.itemId === itemId ? { ...line, ...patch } : line)));
@@ -413,31 +389,25 @@ const FeeStructureSetupPage = () => {
     setSubmitNote("");
   };
 
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (!isMaker) {
       toast({ title: "Maker access required", variant: "destructive" });
       return;
     }
-
-    const now = new Date().toISOString();
-    const record: FeeStructureRecord = {
-      id: `FS-${Date.now()}`,
-      version: approvedStructures.filter((item) => item.grade === selectedGrade && item.term === selectedTerm).length + 1,
-      academicYear: selectedYear,
-      grade: selectedGrade,
-      term: selectedTerm,
-      status: "Draft",
-      lines: currentLines,
-      baseline: baseLines,
-      maker: role,
-      submittedAt: now,
-      updatedAt: now,
-      note: submitNote,
-    };
-
-    setStructures((previous) => [record, ...previous]);
-    addAudit({ actor: role, action: "Saved Draft", grade: selectedGrade, term: selectedTerm, comment: submitNote });
-    toast({ title: "Draft saved", description: `${selectedGrade} · ${selectedTerm}` });
+    try {
+      await FeeApi.saveDraft({
+        academicYear: selectedYear,
+        grade: selectedGrade,
+        term: selectedTerm,
+        lines: currentLines,
+        note: submitNote,
+        maker: role,
+      });
+      toast({ title: "Draft saved", description: `${selectedGrade} · ${selectedTerm}` });
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to save draft", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
   const openPreview = () => {
@@ -452,29 +422,25 @@ const FeeStructureSetupPage = () => {
     setPreviewOpen(true);
   };
 
-  const submitForApproval = () => {
-    const now = new Date().toISOString();
-    const record: FeeStructureRecord = {
-      id: editingRejectedId ?? `FS-${Date.now()}`,
-      version: approvedStructures.filter((item) => item.grade === selectedGrade && item.term === selectedTerm).length + 1,
-      academicYear: selectedYear,
-      grade: selectedGrade,
-      term: selectedTerm,
-      status: "Pending Approval",
-      lines: currentLines,
-      baseline: baseLines,
-      maker: role,
-      submittedAt: now,
-      updatedAt: now,
-      note: submitNote,
-    };
-
-    setStructures((previous) => [record, ...previous.filter((item) => item.id !== record.id)]);
-    addAudit({ actor: role, action: editingRejectedId ? "Reworked" : "Submitted", grade: selectedGrade, term: selectedTerm, comment: submitNote });
-    setPreviewOpen(false);
-    resetMakerForm();
-    setActiveTab("approver");
-    toast({ title: "Moved to approver", description: `${record.grade} · ${record.term}` });
+  const submitForApproval = async () => {
+    try {
+      await FeeApi.submitStructure({
+        academicYear: selectedYear,
+        grade: selectedGrade,
+        term: selectedTerm,
+        lines: currentLines,
+        note: submitNote,
+        maker: role,
+        reworkUuid: editingRejectedId ?? undefined,
+      });
+      setPreviewOpen(false);
+      resetMakerForm();
+      setActiveTab("approver");
+      toast({ title: "Moved to approver", description: `${selectedGrade} · ${selectedTerm}` });
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to submit", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
   const loadRejectedForEditing = (record: FeeStructureRecord) => {
@@ -490,49 +456,39 @@ const FeeStructureSetupPage = () => {
     setActiveTab("maker");
   };
 
-  const approveStructure = (record: FeeStructureRecord) => {
+  const approveStructure = async (record: FeeStructureRecord) => {
     if (!isApprover) {
       toast({ title: "Approver access required", variant: "destructive" });
       return;
     }
-
-    setLiveMap((previous) => ({
-      ...previous,
-      [record.grade]: {
-        ...(previous[record.grade] ?? {}),
-        [record.term]: record.lines,
-      } as Record<TermKey, GradeStatementLine[]>,
-    }));
-
-    setStructures((previous) => previous.map((item) => (
-      item.id === record.id
-        ? { ...item, status: "Approved", approver: role, reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-        : item
-    )));
-    addAudit({ actor: role, action: "Approved", grade: record.grade, term: record.term });
-    setReviewing(null);
-    setActiveTab("approved");
-    toast({ title: "Fee structure approved", description: `${record.grade} · ${record.term} is now live` });
+    try {
+      await FeeApi.approveStructure(record.id, role);
+      setReviewing(null);
+      setActiveTab("approved");
+      toast({ title: "Fee structure approved", description: `${record.grade} · ${record.term} is now live` });
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to approve", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
-  const confirmReject = () => {
+  const confirmReject = async () => {
     if (!rejectFor || !rejectComment.trim()) return;
     if (!isApprover) {
       toast({ title: "Approver access required", variant: "destructive" });
       return;
     }
-
-    setStructures((previous) => previous.map((item) => (
-      item.id === rejectFor.id
-        ? { ...item, status: "Rejected", approver: role, reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), rejectionReason: rejectComment }
-        : item
-    )));
-    addAudit({ actor: role, action: "Rejected", grade: rejectFor.grade, term: rejectFor.term, comment: rejectComment });
-    toast({ title: "Fee structure rejected", description: `${rejectFor.grade} · ${rejectFor.term}` });
-    setRejectFor(null);
-    setReviewing(null);
-    setRejectComment("");
-    setActiveTab("maker");
+    try {
+      await FeeApi.rejectStructure(rejectFor.id, role, rejectComment);
+      toast({ title: "Fee structure rejected", description: `${rejectFor.grade} · ${rejectFor.term}` });
+      setRejectFor(null);
+      setReviewing(null);
+      setRejectComment("");
+      setActiveTab("maker");
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to reject", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
   const openAdd = () => {
@@ -547,24 +503,39 @@ const FeeStructureSetupPage = () => {
     setOpen(true);
   };
 
-  const handleSubmit = () => {
-    if (editingId !== null) {
-      setFeeItems((previous) => previous.map((item) => (item.id === editingId ? { ...item, ...form } : item)));
-      toast({ title: "Fee item updated" });
-    } else {
-      setFeeItems((previous) => [...previous, { id: Math.max(0, ...previous.map((item) => item.id)) + 1, ...form }]);
-      toast({ title: "Fee item added" });
+  const handleSubmit = async () => {
+    try {
+      if (editingId !== null) {
+        await FeeApi.updateItem(editingId, form);
+        toast({ title: "Fee item updated" });
+      } else {
+        await FeeApi.createItem(form);
+        toast({ title: "Fee item added" });
+      }
+      setOpen(false);
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to save fee item", description: getBackendErrorMessage(err), variant: "destructive" });
     }
-    setOpen(false);
   };
 
-  const handleDelete = (id: number) => {
-    setFeeItems((previous) => previous.filter((item) => item.id !== id));
-    toast({ title: "Fee item removed" });
+  const handleDelete = async (id: number) => {
+    try {
+      await FeeApi.deleteItem(id);
+      toast({ title: "Fee item removed" });
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to delete fee item", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
-  const toggleActive = (id: number) => {
-    setFeeItems((previous) => previous.map((item) => (item.id === id ? { ...item, active: !item.active } : item)));
+  const toggleActive = async (id: number) => {
+    try {
+      await FeeApi.toggleItem(id);
+      await load();
+    } catch (err) {
+      toast({ title: "Failed to update fee item", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
   };
 
   const renderStatusBadge = (status: StructureStatus) => {

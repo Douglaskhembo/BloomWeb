@@ -1,20 +1,106 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, CalendarDays, CheckCircle, Clock, XCircle } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
+import { LeaveApi, StaffApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { toast } from "sonner";
 
-const leaveRequests = [
-  { id: "LV-042", teacher: "Mrs. Sarah Wambui", type: "Sick Leave", from: "2026-04-07", to: "2026-04-11", days: 5, status: "Approved", reason: "Medical appointment" },
-  { id: "LV-043", teacher: "Mr. Peter Ouma", type: "Annual Leave", from: "2026-04-14", to: "2026-04-18", days: 5, status: "Pending", reason: "Family event" },
-  { id: "LV-044", teacher: "Mrs. Grace Akinyi", type: "Maternity", from: "2026-05-01", to: "2026-07-31", days: 90, status: "Approved", reason: "Maternity leave" },
-  { id: "LV-045", teacher: "Mr. David Kibet", type: "Personal", from: "2026-04-10", to: "2026-04-10", days: 1, status: "Pending", reason: "Personal errand" },
-  { id: "LV-046", teacher: "Mr. James Wafula", type: "Sick Leave", from: "2026-03-25", to: "2026-03-26", days: 2, status: "Approved", reason: "Flu" },
-  { id: "LV-047", teacher: "Mrs. Mary Chebet", type: "Annual Leave", from: "2026-03-10", to: "2026-03-14", days: 5, status: "Rejected", reason: "Travel plans" },
-];
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 const LeaveManagementPage = () => {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([]);
+  const [allStaff, setAllStaff] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [staffSearch, setStaffSearch] = useState("");
+  const [form, setForm] = useState({ staffUuid: "", leaveTypeId: "", fromDate: "", toDate: "", reason: "" });
+
+  const [rejectFor, setRejectFor] = useState<any | null>(null);
+  const [rejectNote, setRejectNote] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([LeaveApi.getRequests(), LeaveApi.getTypes(), StaffApi.getAll()])
+      .then(([r, t, s]) => { setRequests(r); setLeaveTypes(t); setAllStaff(s); })
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const activeLeaveTypes = leaveTypes.filter((t) => t.active);
+  const availableStaff = allStaff.filter((s) =>
+    `${s.firstName} ${s.lastName} ${s.staffId}`.toLowerCase().includes(staffSearch.toLowerCase())
+  );
+
+  const openAdd = () => {
+    setForm({ staffUuid: "", leaveTypeId: "", fromDate: "", toDate: "", reason: "" });
+    setStaffSearch("");
+    setAddOpen(true);
+  };
+
+  const handleStaffSelect = (staffUuid: string) => setForm((f) => ({ ...f, staffUuid }));
+
+  const handleSubmit = async () => {
+    const staff = allStaff.find((s) => s.uuid === form.staffUuid);
+    if (!staff) { toast.error("Select a staff member"); return; }
+    if (!form.leaveTypeId) { toast.error("Select a leave type"); return; }
+    if (!form.fromDate || !form.toDate) { toast.error("From and To dates are required"); return; }
+    try {
+      await LeaveApi.createRequest({
+        staffId: staff.staffId,
+        staffName: `${staff.firstName} ${staff.lastName}`,
+        leaveTypeId: Number(form.leaveTypeId),
+        fromDate: form.fromDate,
+        toDate: form.toDate,
+        reason: form.reason,
+      });
+      toast.success("Leave request created");
+      setAddOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to create leave request"));
+    }
+  };
+
+  const handleApprove = async (id: number) => {
+    try {
+      await LeaveApi.reviewRequest(id, "APPROVED");
+      toast.success("Leave approved");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to approve leave"));
+    }
+  };
+
+  const confirmReject = async () => {
+    if (!rejectFor) return;
+    try {
+      await LeaveApi.reviewRequest(rejectFor.id, "REJECTED", rejectNote);
+      toast.success("Leave rejected");
+      setRejectFor(null);
+      setRejectNote("");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to reject leave"));
+    }
+  };
+
+  const pending = requests.filter((r) => r.status === "PENDING");
+  const rejected = requests.filter((r) => r.status === "REJECTED");
+  const approvedThisMonth = requests.filter((r) => r.status === "APPROVED" && r.fromDate?.slice(0, 7) === currentMonth());
+  const onLeaveToday = requests.filter((r) => r.status === "APPROVED" && r.fromDate <= todayIso() && r.toDate >= todayIso());
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -22,14 +108,14 @@ const LeaveManagementPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Leave Management</h1>
           <p className="text-muted-foreground">Track and manage staff leave requests</p>
         </div>
-        <Button size="sm"><Plus className="w-4 h-4 mr-1" /> New Leave Request</Button>
+        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> New Leave Request</Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="Pending Requests" value={2} icon={Clock} iconColor="bg-warning/10 text-warning" />
-        <StatCard title="Approved This Month" value={4} icon={CheckCircle} iconColor="bg-success/10 text-success" />
-        <StatCard title="On Leave Today" value={1} icon={CalendarDays} iconColor="bg-info/10 text-info" />
-        <StatCard title="Rejected" value={1} icon={XCircle} iconColor="bg-destructive/10 text-destructive" />
+        <StatCard title="Pending Requests" value={pending.length} icon={Clock} iconColor="bg-warning/10 text-warning" />
+        <StatCard title="Approved This Month" value={approvedThisMonth.length} icon={CheckCircle} iconColor="bg-success/10 text-success" />
+        <StatCard title="On Leave Today" value={onLeaveToday.length} icon={CalendarDays} iconColor="bg-info/10 text-info" />
+        <StatCard title="Rejected" value={rejected.length} icon={XCircle} iconColor="bg-destructive/10 text-destructive" />
       </div>
 
       <Card>
@@ -38,6 +124,9 @@ const LeaveManagementPage = () => {
           <CardDescription>All leave applications from staff</CardDescription>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -53,30 +142,32 @@ const LeaveManagementPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {leaveRequests.map((lr) => (
-                <TableRow key={lr.id}>
-                  <TableCell className="font-mono text-xs">{lr.id}</TableCell>
-                  <TableCell className="font-medium">{lr.teacher}</TableCell>
+              {requests.length === 0 ? (
+                <TableRow><TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-8">No leave requests yet.</TableCell></TableRow>
+              ) : requests.map((lr) => (
+                <TableRow key={lr.uuid}>
+                  <TableCell className="font-mono text-xs">{lr.leaveId}</TableCell>
+                  <TableCell className="font-medium">{lr.staffName}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="text-[10px]">{lr.type}</Badge>
+                    <Badge variant="outline" className="text-[10px]">{lr.leaveType?.name}</Badge>
                   </TableCell>
-                  <TableCell className="text-xs">{lr.from}</TableCell>
-                  <TableCell className="text-xs">{lr.to}</TableCell>
+                  <TableCell className="text-xs">{lr.fromDate}</TableCell>
+                  <TableCell className="text-xs">{lr.toDate}</TableCell>
                   <TableCell className="text-center font-semibold">{lr.days}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{lr.reason}</TableCell>
                   <TableCell>
                     <Badge
-                      variant={lr.status === "Approved" ? "default" : lr.status === "Pending" ? "secondary" : "destructive"}
+                      variant={lr.status === "APPROVED" ? "default" : lr.status === "PENDING" ? "secondary" : "destructive"}
                       className="text-[10px]"
                     >
-                      {lr.status}
+                      {lr.status === "APPROVED" ? "Approved" : lr.status === "PENDING" ? "Pending" : "Rejected"}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {lr.status === "Pending" && (
+                    {lr.status === "PENDING" && (
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" className="h-7 text-xs text-success">Approve</Button>
-                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive">Reject</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-success" onClick={() => handleApprove(lr.id)}>Approve</Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => { setRejectFor(lr); setRejectNote(""); }}>Reject</Button>
                       </div>
                     )}
                   </TableCell>
@@ -84,8 +175,74 @@ const LeaveManagementPage = () => {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
+
+      {/* New Leave Request */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>New Leave Request</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Staff Member *</Label>
+              <Select value={form.staffUuid || undefined} onValueChange={handleStaffSelect}>
+                <SelectTrigger><SelectValue placeholder="Select a staff member" /></SelectTrigger>
+                <SelectContent>
+                  <div className="px-2 py-2">
+                    <Input placeholder="Search staff..." value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+                  </div>
+                  {availableStaff.map((s) => (
+                    <SelectItem key={s.uuid} value={s.uuid}>{s.firstName} {s.lastName} — {s.staffId}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Leave Type *</Label>
+              <Select value={form.leaveTypeId} onValueChange={(v) => setForm((f) => ({ ...f, leaveTypeId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select leave type" /></SelectTrigger>
+                <SelectContent>
+                  {activeLeaveTypes.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>From *</Label>
+                <Input type="date" value={form.fromDate} onChange={(e) => setForm((f) => ({ ...f, fromDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>To *</Label>
+                <Input type="date" value={form.toDate} onChange={(e) => setForm((f) => ({ ...f, toDate: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Reason</Label>
+              <Textarea rows={3} value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmit}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject reason */}
+      <Dialog open={Boolean(rejectFor)} onOpenChange={(o) => { if (!o) { setRejectFor(null); setRejectNote(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Leave Request</DialogTitle>
+            <DialogDescription>{rejectFor && `${rejectFor.staffName} · ${rejectFor.leaveType?.name}`}</DialogDescription>
+          </DialogHeader>
+          <Textarea rows={4} placeholder="Reason for rejection (optional)" value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectFor(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmReject}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

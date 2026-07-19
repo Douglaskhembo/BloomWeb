@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,56 +17,8 @@ import StatutoryDeductionModal from "@/components/modal/StatutoryDeductionModal"
 import NhifTierModal from "@/components/modal/NhifTierModal";
 import AllowanceTypeModal from "@/components/modal/AllowanceTypeModal";
 import OtherDeductionModal from "@/components/modal/OtherDeductionModal";
-
-const initialTaxBrackets: TaxBracket[] = [
-  { id: 1, minAmount: 0, maxAmount: 24000, rate: 10 },
-  { id: 2, minAmount: 24001, maxAmount: 32333, rate: 25 },
-  { id: 3, minAmount: 32334, maxAmount: 500000, rate: 30 },
-  { id: 4, minAmount: 500001, maxAmount: 800000, rate: 32.5 },
-  { id: 5, minAmount: 800001, maxAmount: null, rate: 35 },
-];
-
-const initialStatutory: StatutoryDeduction[] = [
-  { id: 1, name: "NSSF (Tier I)", type: "percentage", value: 6, maxAmount: 1080, employerContribution: true, employerValue: 6, active: true },
-  { id: 2, name: "NSSF (Tier II)", type: "percentage", value: 6, maxAmount: 1080, employerContribution: true, employerValue: 6, active: true },
-  { id: 3, name: "NHIF", type: "tiered", value: 0, maxAmount: null, employerContribution: false, employerValue: 0, active: true },
-  { id: 4, name: "Housing Levy", type: "percentage", value: 1.5, maxAmount: null, employerContribution: true, employerValue: 1.5, active: true },
-];
-
-const initialNHIFTiers: NHIFTier[] = [
-  { id: 1, minSalary: 0, maxSalary: 5999, amount: 150 },
-  { id: 2, minSalary: 6000, maxSalary: 7999, amount: 300 },
-  { id: 3, minSalary: 8000, maxSalary: 11999, amount: 400 },
-  { id: 4, minSalary: 12000, maxSalary: 14999, amount: 500 },
-  { id: 5, minSalary: 15000, maxSalary: 19999, amount: 600 },
-  { id: 6, minSalary: 20000, maxSalary: 24999, amount: 750 },
-  { id: 7, minSalary: 25000, maxSalary: 29999, amount: 850 },
-  { id: 8, minSalary: 30000, maxSalary: 34999, amount: 900 },
-  { id: 9, minSalary: 35000, maxSalary: 39999, amount: 950 },
-  { id: 10, minSalary: 40000, maxSalary: 44999, amount: 1000 },
-  { id: 11, minSalary: 45000, maxSalary: 49999, amount: 1100 },
-  { id: 12, minSalary: 50000, maxSalary: 59999, amount: 1200 },
-  { id: 13, minSalary: 60000, maxSalary: 69999, amount: 1300 },
-  { id: 14, minSalary: 70000, maxSalary: 79999, amount: 1400 },
-  { id: 15, minSalary: 80000, maxSalary: 89999, amount: 1500 },
-  { id: 16, minSalary: 90000, maxSalary: 99999, amount: 1600 },
-  { id: 17, minSalary: 100000, maxSalary: null, amount: 1700 },
-];
-
-const initialAllowances: AllowanceType[] = [
-  { id: 1, name: "House Allowance", type: "fixed", defaultValue: 8000, taxable: true, active: true },
-  { id: 2, name: "Transport Allowance", type: "fixed", defaultValue: 4000, taxable: true, active: true },
-  { id: 3, name: "Medical Allowance", type: "fixed", defaultValue: 3000, taxable: false, active: true },
-  { id: 4, name: "Hardship Allowance", type: "fixed", defaultValue: 5000, taxable: true, active: false },
-  { id: 5, name: "Responsibility Allowance", type: "fixed", defaultValue: 10000, taxable: true, active: true },
-];
-
-const initialOtherDeductions: OtherDeduction[] = [
-  { id: 1, name: "Staff Welfare", type: "fixed", defaultValue: 500, mandatory: false, active: true },
-  { id: 2, name: "SACCO Contribution", type: "fixed", defaultValue: 2000, mandatory: false, active: true },
-  { id: 3, name: "Loan Repayment", type: "fixed", defaultValue: 0, mandatory: false, active: true },
-  { id: 4, name: "Insurance Premium", type: "fixed", defaultValue: 1500, mandatory: false, active: false },
-];
+import { PayrollApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface PayrollSettings {
   personalRelief: number;
@@ -76,25 +28,70 @@ interface PayrollSettings {
   currency: string;
 }
 
-const initialSettings: PayrollSettings = {
-  personalRelief: 2400,
-  insuranceRelief: 5000,
+const emptySettings: PayrollSettings = {
+  personalRelief: 0,
+  insuranceRelief: 0,
   payDay: 28,
   paymentMethod: "bank_transfer",
   currency: "KES",
 };
 
+const VALUE_TYPE_FROM_BACKEND: Record<string, "fixed" | "percentage" | "tiered"> = { FIXED: "fixed", PERCENTAGE: "percentage", TIERED: "tiered" };
+const VALUE_TYPE_TO_BACKEND: Record<string, string> = { fixed: "FIXED", percentage: "PERCENTAGE", tiered: "TIERED" };
+const CATEGORY_FROM_BACKEND: Record<string, "nssf" | "housing_levy" | "other"> = { NSSF: "nssf", HOUSING_LEVY: "housing_levy", OTHER: "other" };
+const CATEGORY_TO_BACKEND: Record<string, string> = { nssf: "NSSF", housing_levy: "HOUSING_LEVY", other: "OTHER" };
+
+const toTaxBracket = (raw: any): TaxBracket => ({ id: raw.id, minAmount: raw.minAmount, maxAmount: raw.maxAmount ?? null, rate: raw.rate });
+const toNhifTier = (raw: any): NHIFTier => ({ id: raw.id, minSalary: raw.minSalary, maxSalary: raw.maxSalary ?? null, amount: raw.amount });
+const toStatutoryDeduction = (raw: any): StatutoryDeduction => ({
+  id: raw.id, name: raw.name, type: VALUE_TYPE_FROM_BACKEND[raw.type] ?? "percentage", category: CATEGORY_FROM_BACKEND[raw.category] ?? "other",
+  value: raw.value, maxAmount: raw.maxAmount ?? null, employerContribution: raw.employerContribution, employerValue: raw.employerValue, active: raw.active,
+});
+const toAllowanceType = (raw: any): AllowanceType => ({
+  id: raw.id, name: raw.name, type: (VALUE_TYPE_FROM_BACKEND[raw.type] as "fixed" | "percentage") ?? "fixed", defaultValue: raw.defaultValue, taxable: raw.taxable, active: raw.active,
+});
+const toOtherDeduction = (raw: any): OtherDeduction => ({
+  id: raw.id, name: raw.name, type: (VALUE_TYPE_FROM_BACKEND[raw.type] as "fixed" | "percentage") ?? "fixed", defaultValue: raw.defaultValue, mandatory: raw.mandatory, active: raw.active,
+});
+const toSettings = (raw: any): PayrollSettings => ({
+  personalRelief: raw.personalRelief, insuranceRelief: raw.insuranceRelief, payDay: raw.payDay,
+  paymentMethod: raw.paymentMethod ?? "bank_transfer", currency: raw.currency ?? "KES",
+});
+
 const formatAmount = (n: number | null) => (n === null ? "No limit" : `KES ${n.toLocaleString()}`);
-const nextId = <T extends { id: number }>(arr: T[]) => Math.max(...arr.map((x) => x.id), 0) + 1;
 
 const PayrollSetupPage = () => {
   const navigate = useNavigate();
-  const [taxBrackets, setTaxBrackets] = useState(initialTaxBrackets);
-  const [statutory, setStatutory] = useState(initialStatutory);
-  const [nhifTiers, setNhifTiers] = useState(initialNHIFTiers);
-  const [allowances, setAllowances] = useState(initialAllowances);
-  const [otherDeductions, setOtherDeductions] = useState(initialOtherDeductions);
-  const [settings, setSettings] = useState(initialSettings);
+  const [taxBrackets, setTaxBrackets] = useState<TaxBracket[]>([]);
+  const [statutory, setStatutory] = useState<StatutoryDeduction[]>([]);
+  const [nhifTiers, setNhifTiers] = useState<NHIFTier[]>([]);
+  const [allowances, setAllowances] = useState<AllowanceType[]>([]);
+  const [otherDeductions, setOtherDeductions] = useState<OtherDeduction[]>([]);
+  const [settings, setSettings] = useState<PayrollSettings>(emptySettings);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [bands, tiers, statutoryDeductions, allowanceTypes, deductions, rawSettings] = await Promise.all([
+        PayrollApi.getPayeBands(),
+        PayrollApi.getNhifTiers(),
+        PayrollApi.getStatutoryDeductions(),
+        PayrollApi.getAllowanceTypes(),
+        PayrollApi.getOtherDeductions(),
+        PayrollApi.getSettings(),
+      ]);
+      setTaxBrackets(bands.map(toTaxBracket));
+      setNhifTiers(tiers.map(toNhifTier));
+      setStatutory(statutoryDeductions.map(toStatutoryDeduction));
+      setAllowances(allowanceTypes.map(toAllowanceType));
+      setOtherDeductions(deductions.map(toOtherDeduction));
+      if (rawSettings) setSettings(toSettings(rawSettings));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
 
   // Modal state
   const [bandOpen, setBandOpen] = useState(false);
@@ -110,6 +107,181 @@ const PayrollSetupPage = () => {
 
   const lastBandMax = taxBrackets.reduce((m, b) => (b.maxAmount && b.maxAmount > m ? b.maxAmount : m), 0);
   const lastNhifMax = nhifTiers.reduce((m, t) => (t.maxSalary && t.maxSalary > m ? t.maxSalary : m), 0);
+
+  const saveBand = async (data: Omit<TaxBracket, "id">) => {
+    try {
+      const payload = { minAmount: data.minAmount, maxAmount: data.maxAmount, rate: data.rate, displayOrder: Math.round(data.minAmount) };
+      if (editingBand) {
+        await PayrollApi.updatePayeBand(editingBand.id, payload);
+        toast.success("Band updated");
+      } else {
+        await PayrollApi.createPayeBand(payload);
+        toast.success("Band added");
+      }
+      setBandOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save PAYE band"));
+    }
+  };
+
+  const deleteBand = async (id: number) => {
+    try {
+      await PayrollApi.deletePayeBand(id);
+      toast.success("Band removed");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete PAYE band"));
+    }
+  };
+
+  const saveNhifTier = async (data: Omit<NHIFTier, "id">) => {
+    try {
+      const payload = { minSalary: data.minSalary, maxSalary: data.maxSalary, amount: data.amount, displayOrder: Math.round(data.minSalary) };
+      if (editingNhif) {
+        await PayrollApi.updateNhifTier(editingNhif.id, payload);
+        toast.success("Tier updated");
+      } else {
+        await PayrollApi.createNhifTier(payload);
+        toast.success("Tier added");
+      }
+      setNhifOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save NHIF tier"));
+    }
+  };
+
+  const deleteNhifTier = async (id: number) => {
+    try {
+      await PayrollApi.deleteNhifTier(id);
+      toast.success("Tier removed");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete NHIF tier"));
+    }
+  };
+
+  const saveAllowance = async (data: Omit<AllowanceType, "id" | "active">) => {
+    try {
+      const payload = { name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], defaultValue: data.defaultValue, taxable: data.taxable };
+      if (editingAl) {
+        await PayrollApi.updateAllowanceType(editingAl.id, payload);
+        toast.success("Allowance updated");
+      } else {
+        await PayrollApi.createAllowanceType(payload);
+        toast.success("Allowance added");
+      }
+      setAlOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save allowance"));
+    }
+  };
+
+  const toggleAllowance = async (id: number) => {
+    try {
+      await PayrollApi.toggleAllowanceType(id);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to update allowance"));
+    }
+  };
+
+  const deleteAllowance = async (id: number) => {
+    try {
+      await PayrollApi.deleteAllowanceType(id);
+      toast.success("Deleted");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete allowance"));
+    }
+  };
+
+  const saveDeduction = async (data: Omit<OtherDeduction, "id" | "active">) => {
+    try {
+      const payload = { name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], defaultValue: data.defaultValue, mandatory: data.mandatory };
+      if (editingDed) {
+        await PayrollApi.updateOtherDeduction(editingDed.id, payload);
+        toast.success("Deduction updated");
+      } else {
+        await PayrollApi.createOtherDeduction(payload);
+        toast.success("Deduction added");
+      }
+      setDedOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save deduction"));
+    }
+  };
+
+  const toggleDeduction = async (id: number) => {
+    try {
+      await PayrollApi.toggleOtherDeduction(id);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to update deduction"));
+    }
+  };
+
+  const deleteDeduction = async (id: number) => {
+    try {
+      await PayrollApi.deleteOtherDeduction(id);
+      toast.success("Deleted");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete deduction"));
+    }
+  };
+
+  const saveStatutory = async (data: Omit<StatutoryDeduction, "id" | "active">) => {
+    try {
+      const payload = {
+        name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], category: CATEGORY_TO_BACKEND[data.category],
+        value: data.value, maxAmount: data.maxAmount, employerContribution: data.employerContribution, employerValue: data.employerValue,
+      };
+      if (editingStat) {
+        await PayrollApi.updateStatutoryDeduction(editingStat.id, payload);
+        toast.success("Deduction updated");
+      } else {
+        await PayrollApi.createStatutoryDeduction(payload);
+        toast.success("Deduction added");
+      }
+      setStatOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save statutory deduction"));
+    }
+  };
+
+  const toggleStatutory = async (id: number) => {
+    try {
+      await PayrollApi.toggleStatutoryDeduction(id);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to update statutory deduction"));
+    }
+  };
+
+  const deleteStatutory = async (id: number) => {
+    try {
+      await PayrollApi.deleteStatutoryDeduction(id);
+      toast.success("Deleted");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to delete statutory deduction"));
+    }
+  };
+
+  const saveSettings = async () => {
+    try {
+      await PayrollApi.saveSettings(settings);
+      toast.success("Payroll settings saved");
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save settings"));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -168,7 +340,7 @@ const PayrollSetupPage = () => {
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingBand(b); setBandOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setTaxBrackets((prev) => prev.filter((x) => x.id !== b.id)); toast.success("Band removed"); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteBand(b.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -195,6 +367,7 @@ const PayrollSetupPage = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Deduction</TableHead>
+                    <TableHead>Category</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Employee Rate/Amount</TableHead>
                     <TableHead className="text-right">Max Amount</TableHead>
@@ -207,17 +380,18 @@ const PayrollSetupPage = () => {
                   {statutory.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
+                      <TableCell><Badge variant="secondary" className="text-[10px]">{s.category === "nssf" ? "NSSF" : s.category === "housing_levy" ? "Housing Levy" : "Other"}</Badge></TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{s.type === "percentage" ? "%" : s.type === "tiered" ? "Tiered" : "Fixed"}</Badge></TableCell>
                       <TableCell className="text-right">{s.type === "tiered" ? "See NHIF tiers" : s.type === "percentage" ? `${s.value}%` : `KES ${s.value.toLocaleString()}`}</TableCell>
                       <TableCell className="text-right">{formatAmount(s.maxAmount)}</TableCell>
                       <TableCell className="text-center">{s.employerContribution ? <Badge variant="default" className="text-[10px]">{s.employerValue}%</Badge> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={s.active} onCheckedChange={() => setStatutory((prev) => prev.map((x) => x.id === s.id ? { ...x, active: !x.active } : x))} />
+                        <Switch checked={s.active} onCheckedChange={() => toggleStatutory(s.id)} />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingStat(s); setStatOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setStatutory((prev) => prev.filter((x) => x.id !== s.id)); toast.success("Deleted"); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteStatutory(s.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -259,7 +433,7 @@ const PayrollSetupPage = () => {
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingNhif(t); setNhifOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setNhifTiers((prev) => prev.filter((x) => x.id !== t.id)); toast.success("Tier removed"); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteNhifTier(t.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -300,12 +474,12 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{a.type === "fixed" ? `KES ${a.defaultValue.toLocaleString()}` : `${a.defaultValue}%`}</TableCell>
                       <TableCell className="text-center"><Badge variant={a.taxable ? "destructive" : "secondary"} className="text-[10px]">{a.taxable ? "Yes" : "No"}</Badge></TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={a.active} onCheckedChange={() => setAllowances((prev) => prev.map((x) => x.id === a.id ? { ...x, active: !x.active } : x))} />
+                        <Switch checked={a.active} onCheckedChange={() => toggleAllowance(a.id)} />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingAl(a); setAlOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setAllowances((prev) => prev.filter((x) => x.id !== a.id)); toast.success("Deleted"); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteAllowance(a.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -346,12 +520,12 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{d.type === "fixed" ? `KES ${d.defaultValue.toLocaleString()}` : `${d.defaultValue}%`}</TableCell>
                       <TableCell className="text-center"><Badge variant={d.mandatory ? "default" : "secondary"} className="text-[10px]">{d.mandatory ? "Yes" : "No"}</Badge></TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={d.active} onCheckedChange={() => setOtherDeductions((prev) => prev.map((x) => x.id === d.id ? { ...x, active: !x.active } : x))} />
+                        <Switch checked={d.active} onCheckedChange={() => toggleDeduction(d.id)} />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingDed(d); setDedOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setOtherDeductions((prev) => prev.filter((x) => x.id !== d.id)); toast.success("Deleted"); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteDeduction(d.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -405,7 +579,7 @@ const PayrollSetupPage = () => {
                   </Select>
                 </div>
               </div>
-              <Button onClick={() => toast.success("Payroll settings saved")}>Save Settings</Button>
+              <Button onClick={saveSettings}>Save Settings</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -416,32 +590,14 @@ const PayrollSetupPage = () => {
         onOpenChange={setBandOpen}
         initial={editingBand}
         defaultMin={lastBandMax ? lastBandMax + 1 : 0}
-        onSubmit={(data) => {
-          if (editingBand) {
-            setTaxBrackets((prev) => prev.map((x) => x.id === editingBand.id ? { ...x, ...data } : x).sort((a, b) => a.minAmount - b.minAmount));
-            toast.success("Band updated");
-          } else {
-            setTaxBrackets((prev) => [...prev, { id: nextId(prev), ...data }].sort((a, b) => a.minAmount - b.minAmount));
-            toast.success("Band added");
-          }
-          setBandOpen(false);
-        }}
+        onSubmit={saveBand}
       />
 
       <StatutoryDeductionModal
         open={statOpen}
         onOpenChange={setStatOpen}
         initial={editingStat}
-        onSubmit={(data) => {
-          if (editingStat) {
-            setStatutory((prev) => prev.map((x) => x.id === editingStat.id ? { ...x, ...data } : x));
-            toast.success("Deduction updated");
-          } else {
-            setStatutory((prev) => [...prev, { id: nextId(prev), ...data, active: true }]);
-            toast.success("Deduction added");
-          }
-          setStatOpen(false);
-        }}
+        onSubmit={saveStatutory}
       />
 
       <NhifTierModal
@@ -449,48 +605,21 @@ const PayrollSetupPage = () => {
         onOpenChange={setNhifOpen}
         initial={editingNhif}
         defaultMin={lastNhifMax ? lastNhifMax + 1 : 0}
-        onSubmit={(data) => {
-          if (editingNhif) {
-            setNhifTiers((prev) => prev.map((x) => x.id === editingNhif.id ? { ...x, ...data } : x).sort((a, b) => a.minSalary - b.minSalary));
-            toast.success("Tier updated");
-          } else {
-            setNhifTiers((prev) => [...prev, { id: nextId(prev), ...data }].sort((a, b) => a.minSalary - b.minSalary));
-            toast.success("Tier added");
-          }
-          setNhifOpen(false);
-        }}
+        onSubmit={saveNhifTier}
       />
 
       <AllowanceTypeModal
         open={alOpen}
         onOpenChange={setAlOpen}
         initial={editingAl}
-        onSubmit={(data) => {
-          if (editingAl) {
-            setAllowances((prev) => prev.map((x) => x.id === editingAl.id ? { ...x, ...data } : x));
-            toast.success("Allowance updated");
-          } else {
-            setAllowances((prev) => [...prev, { id: nextId(prev), ...data, active: true }]);
-            toast.success("Allowance added");
-          }
-          setAlOpen(false);
-        }}
+        onSubmit={saveAllowance}
       />
 
       <OtherDeductionModal
         open={dedOpen}
         onOpenChange={setDedOpen}
         initial={editingDed}
-        onSubmit={(data) => {
-          if (editingDed) {
-            setOtherDeductions((prev) => prev.map((x) => x.id === editingDed.id ? { ...x, ...data } : x));
-            toast.success("Deduction updated");
-          } else {
-            setOtherDeductions((prev) => [...prev, { id: nextId(prev), ...data, active: true }]);
-            toast.success("Deduction added");
-          }
-          setDedOpen(false);
-        }}
+        onSubmit={saveDeduction}
       />
     </div>
   );

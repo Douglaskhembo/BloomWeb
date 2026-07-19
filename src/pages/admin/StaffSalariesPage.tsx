@@ -9,14 +9,15 @@ import StatCard from "@/components/dashboard/StatCard";
 import { useToast } from "@/hooks/use-toast";
 import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
-import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES } from "@/lib/payroll/kenya";
+import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES, PayrollConfig } from "@/lib/payroll/kenya";
+import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import StaffSalaryModal from "@/components/modal/StaffSalaryModal";
 
-const computeFor = (s: StaffSalary) => {
+const computeFor = (s: StaffSalary, config?: Partial<PayrollConfig>) => {
   const taxable = DEFAULT_ALLOWANCES.filter((a) => a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
   const nonTaxable = DEFAULT_ALLOWANCES.filter((a) => !a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
   const other = Object.values(s.deductions).reduce((sum, v) => sum + (v || 0), 0);
-  return calculatePayroll(s.basic || 0, taxable, nonTaxable, other);
+  return calculatePayroll(s.basic || 0, taxable, nonTaxable, other, config);
 };
 
 const StaffSalariesPage = () => {
@@ -27,6 +28,7 @@ const StaffSalariesPage = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffSalary>({ basic: 0, allowances: {}, deductions: {} });
   const [initialStaff, setInitialStaff] = useState<any[]>([]);
+  const [payrollConfig, setPayrollConfig] = useState<Partial<PayrollConfig>>({});
 
   useEffect(() => {
     StaffApi.getAll().then((data) => {
@@ -39,6 +41,7 @@ const StaffSalariesPage = () => {
         status: s.status,
       })));
     }).catch(() => setInitialStaff([]));
+    loadPayrollConfig().then(setPayrollConfig).catch(() => setPayrollConfig({}));
   }, []);
 
   const staff = initialStaff.filter((s) =>
@@ -60,7 +63,7 @@ const StaffSalariesPage = () => {
 
   const totals = initialStaff.reduce(
     (acc, s) => {
-      const r = computeFor(getSalary(s.uuid));
+      const r = computeFor(getSalary(s.uuid), payrollConfig);
       acc.gross += r.gross;
       acc.net += r.net;
       acc.tax += r.paye + r.nssf + r.nhif + r.housingLevy;
@@ -116,7 +119,7 @@ const StaffSalariesPage = () => {
             <TableBody>
               {staff.map((s) => {
                 const sal = getSalary(s.uuid);
-                const result = computeFor(sal);
+                const result = computeFor(sal, payrollConfig);
                 const allowanceTotal = Object.values(sal.allowances).reduce((sum, v) => sum + (v || 0), 0);
                 const configured = sal.basic > 0;
                 return (

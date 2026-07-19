@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,47 +8,71 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import SubjectFormModal from "@/components/modal/SubjectFormModal";
 import { SubjectFormValues } from "@/components/forms/SubjectForm";
+import { SubjectApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-const initialSubjects = [
-  { id: 1, name: "Mathematics", code: "MATH", grades: "PP1 – Grade 9", status: "active" },
-  { id: 2, name: "English", code: "ENG", grades: "PP1 – Grade 9", status: "active" },
-  { id: 3, name: "Kiswahili", code: "KSW", grades: "PP1 – Grade 9", status: "active" },
-  { id: 4, name: "Science & Technology", code: "SCI", grades: "Grade 1 – Grade 6", status: "active" },
-  { id: 5, name: "Social Studies", code: "SST", grades: "Grade 4 – Grade 9", status: "active" },
-  { id: 6, name: "CRE", code: "CRE", grades: "Grade 4 – Grade 9", status: "active" },
-  { id: 7, name: "Creative Arts", code: "ART", grades: "PP1 – Grade 6", status: "active" },
-  { id: 8, name: "Physical Education", code: "PE", grades: "PP1 – Grade 9", status: "active" },
-  { id: 9, name: "Agriculture", code: "AGR", grades: "Grade 7 – Grade 9", status: "inactive" },
-  { id: 10, name: "Home Science", code: "HSC", grades: "Grade 7 – Grade 9", status: "inactive" },
-];
+interface Subject { id: number; name: string; code: string; grades: string; status: "active" | "inactive"; }
+
+const toSubject = (raw: any): Subject => ({
+  id: raw.id,
+  name: raw.name,
+  code: raw.code ?? "",
+  grades: raw.grade ?? "",
+  status: raw.active ? "active" : "inactive",
+});
 
 const emptyForm: SubjectFormValues = { name: "", code: "", grades: "", active: true };
 
 const SubjectsSetupPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [subjects, setSubjects] = useState(initialSubjects);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<SubjectFormValues>(emptyForm);
 
+  const load = () => {
+    setLoading(true);
+    SubjectApi.getAll()
+      .then((data) => setSubjects(data.map(toSubject)))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
   const openAdd = () => { setEditingId(null); setForm(emptyForm); setOpen(true); };
-  const openEdit = (s: typeof subjects[number]) => {
+  const openEdit = (s: Subject) => {
     setEditingId(s.id);
     setForm({ name: s.name, code: s.code, grades: s.grades, active: s.status === "active" });
     setOpen(true);
   };
-  const handleSubmit = () => {
-    if (editingId !== null) {
-      setSubjects((p) => p.map((s) => s.id === editingId ? { ...s, name: form.name, code: form.code, grades: form.grades, status: form.active ? "active" : "inactive" } : s));
-      toast({ title: "Subject updated" });
-    } else {
-      setSubjects((p) => [...p, { id: Math.max(0, ...p.map((s) => s.id)) + 1, name: form.name, code: form.code, grades: form.grades, status: form.active ? "active" : "inactive" }]);
-      toast({ title: "Subject added" });
+
+  const handleSubmit = async () => {
+    const payload = { name: form.name, code: form.code, grade: form.grades, active: form.active };
+    try {
+      if (editingId !== null) {
+        await SubjectApi.update(editingId, payload);
+        toast({ title: "Subject updated" });
+      } else {
+        await SubjectApi.create(payload);
+        toast({ title: "Subject added" });
+      }
+      setOpen(false);
+      load();
+    } catch (err) {
+      toast({ title: "Failed to save subject", description: getBackendErrorMessage(err), variant: "destructive" });
     }
-    setOpen(false);
   };
-  const handleDelete = (id: number) => { setSubjects((p) => p.filter((s) => s.id !== id)); toast({ title: "Subject removed" }); };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await SubjectApi.delete(id);
+      toast({ title: "Subject removed" });
+      load();
+    } catch (err) {
+      toast({ title: "Failed to delete subject", description: getBackendErrorMessage(err), variant: "destructive" });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -69,6 +93,9 @@ const SubjectsSetupPage = () => {
           <CardDescription>Manage subjects and assign them to grade levels</CardDescription>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Loading subjects...</p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -80,7 +107,9 @@ const SubjectsSetupPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {subjects.map((subject) => (
+              {subjects.length === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">No subjects configured yet.</TableCell></TableRow>
+              ) : subjects.map((subject) => (
                 <TableRow key={subject.id}>
                   <TableCell className="font-medium">{subject.name}</TableCell>
                   <TableCell className="text-muted-foreground">{subject.code}</TableCell>
@@ -104,6 +133,7 @@ const SubjectsSetupPage = () => {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 

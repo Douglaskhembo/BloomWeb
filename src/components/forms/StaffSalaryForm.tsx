@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
-import { DEFAULT_ALLOWANCES, DEFAULT_DEDUCTIONS, calculatePayroll, formatKES } from "@/lib/payroll/kenya";
+import { DEFAULT_ALLOWANCES, DEFAULT_DEDUCTIONS, calculatePayroll, formatKES, PayrollConfig } from "@/lib/payroll/kenya";
+import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import type { StaffSalary } from "@/context/PayrollContext";
 
 interface Props {
@@ -11,6 +13,9 @@ interface Props {
 }
 
 const StaffSalaryForm = ({ value, onChange }: Props) => {
+  const [payrollConfig, setPayrollConfig] = useState<Partial<PayrollConfig>>({});
+  useEffect(() => { loadPayrollConfig().then(setPayrollConfig).catch(() => setPayrollConfig({})); }, []);
+
   const toggleAllowance = (id: number, checked: boolean) => {
     const next = { ...value.allowances };
     if (checked) next[id] = DEFAULT_ALLOWANCES.find((a) => a.id === id)?.defaultValue ?? 0;
@@ -32,7 +37,7 @@ const StaffSalaryForm = ({ value, onChange }: Props) => {
   const taxable = DEFAULT_ALLOWANCES.filter((a) => a.taxable && value.allowances[a.id]).reduce((s, a) => s + (value.allowances[a.id] || 0), 0);
   const nonTaxable = DEFAULT_ALLOWANCES.filter((a) => !a.taxable && value.allowances[a.id]).reduce((s, a) => s + (value.allowances[a.id] || 0), 0);
   const other = Object.values(value.deductions).reduce((s, v) => s + (v || 0), 0);
-  const result = calculatePayroll(value.basic || 0, taxable, nonTaxable, other);
+  const result = calculatePayroll(value.basic || 0, taxable, nonTaxable, other, payrollConfig);
 
   return (
     <div className="space-y-5">

@@ -6,8 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { UserPlus, Search, Pencil, Trash2, KeyRound } from "lucide-react";
-import { UserApi, RoleApi } from "@/services/api";
+import { UserApi, RoleApi, StaffApi } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
@@ -50,6 +52,13 @@ const UsersPage = () => {
     email: "", phoneNumber: "", profileRef: "", roleUuids: [] as string[],
   });
 
+  // onboard-from-staff (create mode only)
+  const [allStaff, setAllStaff]         = useState<any[]>([]);
+  const [staffSearch, setStaffSearch]   = useState("");
+  const [onboardForm, setOnboardForm] = useState({
+    staffUuid: "", userName: "", roleUuids: [] as string[], enable2FA: false,
+  });
+
   const fetchUsers = async () => {
     try { setUsers(await UserApi.getAll()); }
     catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
@@ -58,7 +67,25 @@ const UsersPage = () => {
   useEffect(() => {
     fetchUsers();
     RoleApi.getAll().then(setAllRoles).catch(() => {});
+    StaffApi.getAll().then(setAllStaff).catch(() => {});
   }, []);
+
+  // Staff who already have a login (matched by profileRef → staff uuid) shouldn't be offered again.
+  const onboardedStaffUuids = new Set(users.map(u => u.profileRef).filter(Boolean));
+  const availableStaff = allStaff
+    .filter(s => !onboardedStaffUuids.has(s.uuid))
+    .filter(s => `${s.firstName} ${s.lastName} ${s.staffId} ${s.email}`.toLowerCase().includes(staffSearch.toLowerCase()));
+
+  const handleStaffSelect = (staffUuid: string) => {
+    const staff = allStaff.find(s => s.uuid === staffUuid);
+    if (!staff) return;
+    const firstInitial = staff.firstName?.charAt(0)?.toUpperCase() ?? "";
+    const lastInitial = staff.lastName?.charAt(0)?.toUpperCase() ?? "";
+    const numericPart = (staff.staffId ?? "").replace(/^[^0-9]+/, "");
+    setOnboardForm(f => ({ ...f, staffUuid, userName: `${firstInitial}${lastInitial}${numericPart}` }));
+  };
+
+  const selectedStaff = allStaff.find(s => s.uuid === onboardForm.staffUuid);
 
   // ── select user ───────────────────────────────────────────────────────────
   const handleUserSelect = async (user: any) => {
@@ -178,7 +205,8 @@ const UsersPage = () => {
   // ── add / edit modal ──────────────────────────────────────────────────────
   const openAdd = () => {
     setEditingUser(null);
-    setForm({ userName: "", firstName: "", otherNames: "", email: "", phoneNumber: "", profileRef: "", roleUuids: [] });
+    setStaffSearch("");
+    setOnboardForm({ staffUuid: "", userName: "", roleUuids: [], enable2FA: false });
     setModalOpen(true);
   };
 
@@ -190,18 +218,34 @@ const UsersPage = () => {
   };
 
   const handleSave = async () => {
-    if (!form.userName || !form.firstName || !form.email) {
-      Swal.fire("Validation", "Username, first name and email are required.", "warning"); return;
-    }
-    try {
-      if (editingUser) {
+    if (editingUser) {
+      if (!form.userName || !form.firstName || !form.email) {
+        Swal.fire("Validation", "Username, first name and email are required.", "warning"); return;
+      }
+      try {
         await UserApi.update(editingUser.userUuid, form);
         Swal.fire({ icon: "success", title: "User updated", timer: 1500, showConfirmButton: false });
-      } else {
-        await UserApi.create(form);
-        Swal.fire({ icon: "success", title: "User created", timer: 1500, showConfirmButton: false });
-      }
+        setModalOpen(false); fetchUsers();
+      } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+      return;
+    }
+
+    if (!onboardForm.staffUuid) { Swal.fire("Validation", "Select a staff member to onboard.", "warning"); return; }
+    if (!onboardForm.userName) { Swal.fire("Validation", "Username is required.", "warning"); return; }
+    if (onboardForm.roleUuids.length === 0) { Swal.fire("Validation", "Select a role.", "warning"); return; }
+    try {
+      const result = await UserApi.onboardStaff(onboardForm);
       setModalOpen(false); fetchUsers();
+      const tempPassword = result?.temporaryPassword;
+      await Swal.fire({
+        icon: "success",
+        title: "Staff onboarded",
+        html: tempPassword
+          ? `<p>Account created for <b>${result.user?.firstName ?? ""} ${result.user?.otherNames ?? ""}</b>.</p>
+             <p>Temporary password (share with them securely — valid 24 hours):</p>
+             <code style="font-size:1.1em">${tempPassword}</code>`
+          : "Account created.",
+      });
     } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
   };
 
@@ -422,54 +466,102 @@ const UsersPage = () => {
         </div>
       )}
 
-      {/* ── Add / Edit Modal ── */}
+      {/* ── Add (onboard from staff) / Edit Modal ── */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingUser ? "Edit User" : "Add User"}</DialogTitle>
+            <DialogTitle>{editingUser ? "Edit User" : "Onboard Staff"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-2">
-            <div className="space-y-1">
-              <Label>Username *</Label>
-              <Input value={form.userName} disabled={!!editingUser} onChange={e => setForm(f => ({ ...f, userName: e.target.value }))} />
+
+          {editingUser ? (
+            <div className="grid grid-cols-2 gap-3 py-2">
+              <div className="space-y-1">
+                <Label>Username *</Label>
+                <Input value={form.userName} disabled onChange={e => setForm(f => ({ ...f, userName: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>First Name *</Label>
+                <Input value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Other Names</Label>
+                <Input value={form.otherNames} onChange={e => setForm(f => ({ ...f, otherNames: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Email *</Label>
+                <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Phone</Label>
+                <Input value={form.phoneNumber} onChange={e => setForm(f => ({ ...f, phoneNumber: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label>Profile Ref</Label>
+                <Input value={form.profileRef} placeholder="Staff/Student UUID" onChange={e => setForm(f => ({ ...f, profileRef: e.target.value }))} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>First Name *</Label>
-              <Input value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Other Names</Label>
-              <Input value={form.otherNames} onChange={e => setForm(f => ({ ...f, otherNames: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Email *</Label>
-              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Phone</Label>
-              <Input value={form.phoneNumber} onChange={e => setForm(f => ({ ...f, phoneNumber: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label>Profile Ref</Label>
-              <Input value={form.profileRef} placeholder="Staff/Student UUID" onChange={e => setForm(f => ({ ...f, profileRef: e.target.value }))} />
-            </div>
-            {!editingUser && (
-              <div className="col-span-2 space-y-1">
-                <Label>Role</Label>
+          ) : (
+            <div className="space-y-3 py-2">
+              <div className="space-y-1">
+                <Label>Staff Member *</Label>
+                <Select value={onboardForm.staffUuid || undefined} onValueChange={handleStaffSelect}>
+                  <SelectTrigger><SelectValue placeholder="Select a staff member" /></SelectTrigger>
+                  <SelectContent>
+                    <div className="px-2 py-2">
+                      <Input
+                        placeholder="Search by name, staff ID, email..."
+                        value={staffSearch}
+                        onChange={e => setStaffSearch(e.target.value)}
+                        onKeyDown={e => e.stopPropagation()}
+                      />
+                    </div>
+                    {availableStaff.length === 0 ? (
+                      <div className="px-2 py-3 text-sm text-muted-foreground">No unonboarded staff found</div>
+                    ) : availableStaff.map(s => (
+                      <SelectItem key={s.uuid} value={s.uuid}>
+                        {s.firstName} {s.lastName} — {s.staffId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Only staff without an existing account are shown.</p>
+              </div>
+
+              {selectedStaff && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                  <div><span className="text-muted-foreground">Email:</span> {selectedStaff.email || "—"}</div>
+                  <div><span className="text-muted-foreground">Phone:</span> {selectedStaff.phone || "—"}</div>
+                  <div><span className="text-muted-foreground">Staff Type:</span> {selectedStaff.staffType || "—"}</div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label>Username *</Label>
+                <Input value={onboardForm.userName} onChange={e => setOnboardForm(f => ({ ...f, userName: e.target.value }))} />
+              </div>
+
+              <div className="space-y-1">
+                <Label>Role *</Label>
                 <select className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.roleUuids[0] ?? ""}
-                  onChange={e => setForm(f => ({ ...f, roleUuids: e.target.value ? [e.target.value] : [] }))}>
+                  value={onboardForm.roleUuids[0] ?? ""}
+                  onChange={e => setOnboardForm(f => ({ ...f, roleUuids: e.target.value ? [e.target.value] : [] }))}>
                   <option value="">— Select role —</option>
                   {allRoles.map(r => (
                     <option key={r.uuid ?? r.roleUuid} value={r.uuid ?? r.roleUuid}>{r.name ?? r.roleName}</option>
                   ))}
                 </select>
               </div>
-            )}
-          </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <Label htmlFor="enable2fa" className="cursor-pointer">Enable Two-Factor Authentication</Label>
+                <Switch id="enable2fa" checked={onboardForm.enable2FA} onCheckedChange={c => setOnboardForm(f => ({ ...f, enable2FA: c }))} />
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave}>Save</Button>
+            <Button onClick={handleSave}>{editingUser ? "Save" : "Onboard"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

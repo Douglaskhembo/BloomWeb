@@ -12,7 +12,8 @@ import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
-import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES } from "@/lib/payroll/kenya";
+import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES, PayrollConfig } from "@/lib/payroll/kenya";
+import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -22,11 +23,11 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December"
 ];
 
-const computeLine = (s: StaffSalary) => {
+const computeLine = (s: StaffSalary, config?: Partial<PayrollConfig>) => {
   const taxable = DEFAULT_ALLOWANCES.filter((a) => a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
   const nonTaxable = DEFAULT_ALLOWANCES.filter((a) => !a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
   const other = Object.values(s.deductions).reduce((sum, v) => sum + (v || 0), 0);
-  return calculatePayroll(s.basic || 0, taxable, nonTaxable, other);
+  return calculatePayroll(s.basic || 0, taxable, nonTaxable, other, config);
 };
 
 const PayrollPage = () => {
@@ -36,6 +37,7 @@ const PayrollPage = () => {
   const [selectedRunId, setSelectedRunId] = useState<string | "current">("current");
   const [search, setSearch] = useState("");
   const [initialStaff, setInitialStaff] = useState<any[]>([]);
+  const [payrollConfig, setPayrollConfig] = useState<Partial<PayrollConfig>>({});
 
   useEffect(() => {
     StaffApi.getAll().then((data) => {
@@ -48,6 +50,7 @@ const PayrollPage = () => {
         status: s.status,
       })));
     }).catch(() => setInitialStaff([]));
+    loadPayrollConfig().then(setPayrollConfig).catch(() => setPayrollConfig({}));
   }, []);
 
   const rows = useMemo(
@@ -56,10 +59,10 @@ const PayrollPage = () => {
         .filter((s) => s.status !== "Resigned")
         .map((s) => {
           const sal = getSalary(s.uuid);
-          return { staff: s, sal, line: computeLine(sal) };
+          return { staff: s, sal, line: computeLine(sal, payrollConfig) };
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [salaries],
+    [salaries, initialStaff, payrollConfig],
   );
 
   const currentTotals = rows.reduce(
@@ -111,10 +114,10 @@ const PayrollPage = () => {
       .map((s) => ({
         staff: s,
         sal: getSalary(s.uuid),
-        line: activeRun.lines[s.uuid] || computeLine(getSalary(s.uuid)),
+        line: activeRun.lines[s.uuid] || computeLine(getSalary(s.uuid), payrollConfig),
         isPaid: activeRun.paidStaff.includes(s.uuid),
       }));
-  }, [activeRun, rows, paid, getSalary]);
+  }, [activeRun, rows, paid, getSalary, initialStaff, payrollConfig]);
 
   const displayTotals = displayRows.reduce(
     (acc, r) => {

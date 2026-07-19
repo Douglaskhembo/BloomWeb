@@ -9,6 +9,7 @@ export interface StatutoryDeduction {
   id: number;
   name: string;
   type: "percentage" | "tiered" | "fixed";
+  category: "nssf" | "housing_levy" | "other";
   value: number;
   maxAmount: number | null;
   employerContribution: boolean;

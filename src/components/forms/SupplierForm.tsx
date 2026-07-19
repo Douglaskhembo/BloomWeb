@@ -5,8 +5,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export interface SupplierFormValues {
   name: string;
   category: string;
-  contact: string;
+  contactPerson: string;
+  phone: string;
   email: string;
+  address: string;
+  kraPin: string;
   status: "Active" | "Inactive";
 }
 
@@ -36,12 +39,24 @@ const SupplierForm = ({ value, onChange }: Props) => (
       </Select>
     </div>
     <div className="space-y-2">
-      <Label>Contact Phone</Label>
-      <Input value={value.contact} onChange={(e) => onChange({ ...value, contact: e.target.value })} placeholder="+254 ..." />
+      <Label>Contact Person</Label>
+      <Input value={value.contactPerson} onChange={(e) => onChange({ ...value, contactPerson: e.target.value })} />
+    </div>
+    <div className="space-y-2">
+      <Label>Phone</Label>
+      <Input value={value.phone} onChange={(e) => onChange({ ...value, phone: e.target.value })} placeholder="+254 ..." />
     </div>
     <div className="space-y-2">
       <Label>Email</Label>
       <Input type="email" value={value.email} onChange={(e) => onChange({ ...value, email: e.target.value })} />
+    </div>
+    <div className="space-y-2">
+      <Label>KRA PIN</Label>
+      <Input value={value.kraPin} onChange={(e) => onChange({ ...value, kraPin: e.target.value })} placeholder="e.g. P051234567X" />
+    </div>
+    <div className="space-y-2 md:col-span-2">
+      <Label>Address</Label>
+      <Input value={value.address} onChange={(e) => onChange({ ...value, address: e.target.value })} />
     </div>
   </div>
 );
