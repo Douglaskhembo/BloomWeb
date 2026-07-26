@@ -344,6 +344,15 @@ export const SchoolApi = {
   deleteBranch: async (uuid: string): Promise<void> => {
     await schoolAPI.delete(`/branches/${uuid}`);
   },
+  // Bank accounts (school's own accounts; one may be flagged as the payroll debit account)
+  getBankAccounts: async (): Promise<any[]> => {
+    try { return unwrapList(await schoolAPI.get('/bank-accounts')); } catch { return []; }
+  },
+  createBankAccount: async (data: any): Promise<any> => unwrap(await schoolAPI.post('/bank-accounts', data)),
+  updateBankAccount: async (uuid: string, data: any): Promise<any> => unwrap(await schoolAPI.put(`/bank-accounts/${uuid}`, data)),
+  toggleBankAccount: async (uuid: string): Promise<void> => { await schoolAPI.patch(`/bank-accounts/${uuid}/toggle`); },
+  setBankAccountUseForPayroll: async (uuid: string): Promise<any> => unwrap(await schoolAPI.patch(`/bank-accounts/${uuid}/use-for-payroll`)),
+  deleteBankAccount: async (uuid: string): Promise<void> => { await schoolAPI.delete(`/bank-accounts/${uuid}`); },
 };
 
 export const LeaveApi = {
@@ -632,15 +641,7 @@ export const PayrollApi = {
   updatePayeBand: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/paye-bands/${id}`, data)),
   deletePayeBand: async (id: number): Promise<void> => { await payrollAPI.delete(`/paye-bands/${id}`); },
 
-  // NHIF tiers
-  getNhifTiers: async (): Promise<any[]> => {
-    try { return unwrapList(await payrollAPI.get('/nhif-tiers')); } catch { return []; }
-  },
-  createNhifTier: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/nhif-tiers', data)),
-  updateNhifTier: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/nhif-tiers/${id}`, data)),
-  deleteNhifTier: async (id: number): Promise<void> => { await payrollAPI.delete(`/nhif-tiers/${id}`); },
-
-  // Statutory deductions (NSSF, Housing Levy, custom)
+  // Statutory deductions (NSSF, Housing Levy, SHIF, custom)
   getStatutoryDeductions: async (): Promise<any[]> => {
     try { return unwrapList(await payrollAPI.get('/statutory-deductions')); } catch { return []; }
   },
@@ -697,6 +698,15 @@ export const PayrollApi = {
   updateMobileMoneyProvider: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/mobile-money-providers/${id}`, data)),
   toggleMobileMoneyProvider: async (id: number): Promise<void> => { await payrollAPI.patch(`/mobile-money-providers/${id}/toggle`); },
   deleteMobileMoneyProvider: async (id: number): Promise<void> => { await payrollAPI.delete(`/mobile-money-providers/${id}`); },
+
+  // Payment types (settlement rail for the bank-submission export, e.g. PESALINK/RTGS/MPESA)
+  getPaymentTypes: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/payment-types')); } catch { return []; }
+  },
+  createPaymentType: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/payment-types', data)),
+  updatePaymentType: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/payment-types/${id}`, data)),
+  togglePaymentType: async (id: number): Promise<void> => { await payrollAPI.patch(`/payment-types/${id}/toggle`); },
+  deletePaymentType: async (id: number): Promise<void> => { await payrollAPI.delete(`/payment-types/${id}`); },
 
   // Staff payment details (Finance-only bank/mobile-money info)
   getAllStaffPaymentDetails: async (): Promise<any[]> => {

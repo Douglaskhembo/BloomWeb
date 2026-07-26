@@ -9,19 +9,17 @@ export interface StatutoryDeduction {
   id: number;
   name: string;
   type: "percentage" | "tiered" | "fixed";
-  category: "nssf" | "housing_levy" | "other";
+  category: "nssf" | "housing_levy" | "shif" | "other";
   value: number;
   maxAmount: number | null;
+  /** Floor on the computed amount, e.g. SHIF's KES 300 minimum. */
+  minAmount: number | null;
+  /** Lower bound subtracted from gross before applying the percentage, e.g. NSSF Tier II
+   *  only taxing the excess above the Tier I ceiling. */
+  thresholdAmount: number | null;
   employerContribution: boolean;
   employerValue: number;
   active: boolean;
-}
-
-export interface NHIFTier {
-  id: number;
-  minSalary: number;
-  maxSalary: number | null;
-  amount: number;
 }
 
 export interface AllowanceType {

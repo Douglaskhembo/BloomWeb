@@ -9,6 +9,7 @@ import StatCard from "@/components/dashboard/StatCard";
 import { useToast } from "@/hooks/use-toast";
 import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
+import { getStaffIdentifier } from "@/utils/staff";
 import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES, PayrollConfig } from "@/lib/payroll/kenya";
 import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import StaffSalaryModal from "@/components/modal/StaffSalaryModal";
@@ -40,13 +41,16 @@ const StaffSalariesPage = () => {
         lastName: s.lastName,
         staffType: s.staffType,
         status: s.status,
+        idNumber: s.idNumber,
+        passportNumber: s.passportNumber,
+        staffId: s.staffId,
       })));
     }).catch(() => setInitialStaff([]));
     loadPayrollConfig().then(setPayrollConfig).catch(() => setPayrollConfig({}));
   }, []);
 
   const staff = initialStaff.filter((s) =>
-    `${s.firstName} ${s.lastName} ${s.uuid}`.toLowerCase().includes(search.toLowerCase())
+    `${s.firstName} ${s.lastName} ${getStaffIdentifier(s)}`.toLowerCase().includes(search.toLowerCase())
   );
 
   const openEdit = (id: string) => {
@@ -128,7 +132,7 @@ const StaffSalariesPage = () => {
                 const configured = sal.basic > 0;
                 return (
                   <TableRow key={s.uuid}>
-                    <TableCell className="font-mono text-xs">{s.uuid}</TableCell>
+                    <TableCell className="font-mono text-xs">{getStaffIdentifier(s)}</TableCell>
                     <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                     <TableCell><Badge variant="outline" className="text-[10px]">{s.staffType}</Badge></TableCell>
                     <TableCell className="text-right">{configured ? formatKES(sal.basic) : <span className="text-xs text-muted-foreground">Not set</span>}</TableCell>

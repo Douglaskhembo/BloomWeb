@@ -1,21 +1,26 @@
 // Kenya statutory payroll constants & calculation engine.
 // Centralised so PayrollSetup, StaffSalaries and Payroll pages share one source.
 //
-// Rates are configurable via the Payroll Setup screens (PAYE bands, NHIF tiers,
-// Statutory Deductions, Settings) and fetched from the backend at call time — see
-// loadPayrollConfig() below. The DEFAULT_* values here are only a fallback for when
-// that config hasn't been configured yet or fails to load, so the app never silently
-// computes zero deductions.
+// Rates are configurable via the Payroll Setup screens (PAYE bands, Statutory Deductions,
+// Settings) and fetched from the backend at call time — see loadPayrollConfig() below. The
+// DEFAULT_* values here are only a fallback for when that config hasn't been configured yet
+// or fails to load, so the app never silently computes zero deductions. SHIF (which replaced
+// NHIF in Oct 2024) is a flat percentage of gross like NSSF/Housing Levy, so it's modeled as a
+// StatutoryConfigItem row rather than a tiered lookup table.
 
 export interface PayeBand { min: number; max: number | null; rate: number }
-export interface NhifTier { min: number; max: number | null; amount: number }
 export interface AllowanceType { id: number; name: string; defaultValue: number; taxable: boolean }
 export interface DeductionType { id: number; name: string; defaultValue: number }
 export interface StatutoryConfigItem {
   type: "percentage" | "fixed" | "tiered";
-  category: "nssf" | "housing_levy" | "other";
+  category: "nssf" | "housing_levy" | "shif" | "other";
   value: number;
   maxAmount: number | null;
+  /** Floor on the computed amount, e.g. SHIF's KES 300 minimum. */
+  minAmount?: number | null;
+  /** Lower bound subtracted from gross before applying the percentage, e.g. NSSF Tier II
+   *  only taxing the excess above the Tier I ceiling. */
+  thresholdAmount?: number | null;
   active: boolean;
 }
 
@@ -27,24 +32,13 @@ export const DEFAULT_PAYE_BANDS: PayeBand[] = [
   { min: 800001, max: null, rate: 0.35 },
 ];
 
-export const DEFAULT_NHIF_TIERS: NhifTier[] = [
-  { min: 0, max: 5999, amount: 150 }, { min: 6000, max: 7999, amount: 300 },
-  { min: 8000, max: 11999, amount: 400 }, { min: 12000, max: 14999, amount: 500 },
-  { min: 15000, max: 19999, amount: 600 }, { min: 20000, max: 24999, amount: 750 },
-  { min: 25000, max: 29999, amount: 850 }, { min: 30000, max: 34999, amount: 900 },
-  { min: 35000, max: 39999, amount: 950 }, { min: 40000, max: 44999, amount: 1000 },
-  { min: 45000, max: 49999, amount: 1100 }, { min: 50000, max: 59999, amount: 1200 },
-  { min: 60000, max: 69999, amount: 1300 }, { min: 70000, max: 79999, amount: 1400 },
-  { min: 80000, max: 89999, amount: 1500 }, { min: 90000, max: 99999, amount: 1600 },
-  { min: 100000, max: null, amount: 1700 },
-];
-
-// NSSF's two tiers modeled as two capped-percentage rows (6% up to KES 1,080 each),
-// matching what the Statutory Deductions setup screen configures.
+// NSSF Tier I/II per the Feb 2025 rates, Housing Levy 1.5% uncapped, and SHIF (replacing NHIF
+// since Oct 2024) at a flat 2.75% of gross with a KES 300 floor.
 export const DEFAULT_STATUTORY: StatutoryConfigItem[] = [
-  { type: "percentage", category: "nssf", value: 6, maxAmount: 1080, active: true },
-  { type: "percentage", category: "nssf", value: 6, maxAmount: 1080, active: true },
+  { type: "percentage", category: "nssf", value: 6, thresholdAmount: 0, maxAmount: 480, active: true },
+  { type: "percentage", category: "nssf", value: 6, thresholdAmount: 8000, maxAmount: 3840, active: true },
   { type: "percentage", category: "housing_levy", value: 1.5, maxAmount: null, active: true },
+  { type: "percentage", category: "shif", value: 2.75, minAmount: 300, maxAmount: null, active: true },
 ];
 
 export const DEFAULT_PERSONAL_RELIEF = 2400;
@@ -66,25 +60,22 @@ export const DEFAULT_DEDUCTIONS: DeductionType[] = [
 
 export interface PayrollConfig {
   payeBands: PayeBand[];
-  nhifTiers: NhifTier[];
   statutory: StatutoryConfigItem[];
   personalRelief: number;
 }
 
-const computeStatutory = (gross: number, statutory: StatutoryConfigItem[], category: "nssf" | "housing_levy") =>
+const computeStatutory = (gross: number, statutory: StatutoryConfigItem[], category: "nssf" | "housing_levy" | "shif") =>
   Math.round(
     statutory
       .filter((d) => d.active && d.category === category && d.type !== "tiered")
       .reduce((sum, d) => {
-        const raw = d.type === "percentage" ? gross * (d.value / 100) : d.value;
-        return sum + (d.maxAmount !== null ? Math.min(raw, d.maxAmount) : raw);
+        const base = Math.max(0, gross - (d.thresholdAmount ?? 0));
+        let amount = d.type === "percentage" ? base * (d.value / 100) : d.value;
+        if (d.maxAmount != null) amount = Math.min(amount, d.maxAmount);
+        if (d.minAmount != null) amount = Math.max(amount, d.minAmount);
+        return sum + amount;
       }, 0),
   );
-
-export const computeNHIF = (gross: number, tiers: NhifTier[] = DEFAULT_NHIF_TIERS) => {
-  const tier = tiers.find((t) => gross >= t.min && (t.max === null || gross <= t.max));
-  return tier ? tier.amount : 0;
-};
 
 export const computePAYE = (taxableIncome: number, bands: PayeBand[] = DEFAULT_PAYE_BANDS, personalRelief: number = DEFAULT_PERSONAL_RELIEF) => {
   let remaining = taxableIncome;
@@ -120,13 +111,12 @@ export const calculatePayroll = (
   config?: Partial<PayrollConfig>,
 ): PayrollLine => {
   const payeBands = config?.payeBands?.length ? config.payeBands : DEFAULT_PAYE_BANDS;
-  const nhifTiers = config?.nhifTiers?.length ? config.nhifTiers : DEFAULT_NHIF_TIERS;
   const statutory = config?.statutory?.length ? config.statutory : DEFAULT_STATUTORY;
   const personalRelief = config?.personalRelief ?? DEFAULT_PERSONAL_RELIEF;
 
   const gross = basic + taxableAllowances + nonTaxableAllowances;
   const nssf = computeStatutory(gross, statutory, "nssf");
-  const nhif = computeNHIF(gross, nhifTiers);
+  const nhif = computeStatutory(gross, statutory, "shif");
   const housingLevy = computeStatutory(gross, statutory, "housing_levy");
   // PAYE taxable income: gross minus non-taxable allowances minus NSSF (deductible)
   const taxable = gross - nonTaxableAllowances - nssf;

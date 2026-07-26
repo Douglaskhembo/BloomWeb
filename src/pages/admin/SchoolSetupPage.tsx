@@ -13,6 +13,7 @@ import { getBackendErrorMessage } from "@/utils/errorHandler";
 import GradeLevelsPage from "./GradeLevelsPage";
 import DepartmentsPage from "./DepartmentsPage";
 import BranchesPage from "./BranchesPage";
+import SchoolBankAccountsPage from "./SchoolBankAccountsPage";
 
 const SchoolSetupPage = () => {
   const navigate = useNavigate();
@@ -98,6 +99,7 @@ const SchoolSetupPage = () => {
           <TabsTrigger value="grade-levels">Grade Levels</TabsTrigger>
           {info.hasDepartment && <TabsTrigger value="departments">Departments</TabsTrigger>}
           {info.hasBranch && <TabsTrigger value="branches">Branches</TabsTrigger>}
+          <TabsTrigger value="bank-accounts">Bank Accounts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bio-data" className="mt-4">
@@ -226,6 +228,7 @@ const SchoolSetupPage = () => {
         <TabsContent value="grade-levels" className="mt-4"><GradeLevelsPage /></TabsContent>
         {info.hasDepartment && <TabsContent value="departments" className="mt-4"><DepartmentsPage /></TabsContent>}
         {info.hasBranch && <TabsContent value="branches" className="mt-4"><BranchesPage /></TabsContent>}
+        <TabsContent value="bank-accounts" className="mt-4"><SchoolBankAccountsPage /></TabsContent>
       </Tabs>
     </div>
   );

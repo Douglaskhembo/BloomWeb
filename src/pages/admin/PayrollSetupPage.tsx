@@ -11,10 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import type { TaxBracket, StatutoryDeduction, NHIFTier, AllowanceType, OtherDeduction } from "@/types/payroll";
+import type { TaxBracket, StatutoryDeduction, AllowanceType, OtherDeduction } from "@/types/payroll";
 import PayeBandModal from "@/components/modal/PayeBandModal";
 import StatutoryDeductionModal from "@/components/modal/StatutoryDeductionModal";
-import NhifTierModal from "@/components/modal/NhifTierModal";
 import AllowanceTypeModal from "@/components/modal/AllowanceTypeModal";
 import OtherDeductionModal from "@/components/modal/OtherDeductionModal";
 import PayrollWorkflowSetup from "@/components/payroll/PayrollWorkflowSetup";
@@ -39,14 +38,14 @@ const emptySettings: PayrollSettings = {
 
 const VALUE_TYPE_FROM_BACKEND: Record<string, "fixed" | "percentage" | "tiered"> = { FIXED: "fixed", PERCENTAGE: "percentage", TIERED: "tiered" };
 const VALUE_TYPE_TO_BACKEND: Record<string, string> = { fixed: "FIXED", percentage: "PERCENTAGE", tiered: "TIERED" };
-const CATEGORY_FROM_BACKEND: Record<string, "nssf" | "housing_levy" | "other"> = { NSSF: "nssf", HOUSING_LEVY: "housing_levy", OTHER: "other" };
-const CATEGORY_TO_BACKEND: Record<string, string> = { nssf: "NSSF", housing_levy: "HOUSING_LEVY", other: "OTHER" };
+const CATEGORY_FROM_BACKEND: Record<string, "nssf" | "housing_levy" | "shif" | "other"> = { NSSF: "nssf", HOUSING_LEVY: "housing_levy", SHIF: "shif", OTHER: "other" };
+const CATEGORY_TO_BACKEND: Record<string, string> = { nssf: "NSSF", housing_levy: "HOUSING_LEVY", shif: "SHIF", other: "OTHER" };
 
 const toTaxBracket = (raw: any): TaxBracket => ({ id: raw.id, minAmount: raw.minAmount, maxAmount: raw.maxAmount ?? null, rate: raw.rate });
-const toNhifTier = (raw: any): NHIFTier => ({ id: raw.id, minSalary: raw.minSalary, maxSalary: raw.maxSalary ?? null, amount: raw.amount });
 const toStatutoryDeduction = (raw: any): StatutoryDeduction => ({
   id: raw.id, name: raw.name, type: VALUE_TYPE_FROM_BACKEND[raw.type] ?? "percentage", category: CATEGORY_FROM_BACKEND[raw.category] ?? "other",
-  value: raw.value, maxAmount: raw.maxAmount ?? null, employerContribution: raw.employerContribution, employerValue: raw.employerValue, active: raw.active,
+  value: raw.value, maxAmount: raw.maxAmount ?? null, minAmount: raw.minAmount ?? null, thresholdAmount: raw.thresholdAmount ?? null,
+  employerContribution: raw.employerContribution, employerValue: raw.employerValue, active: raw.active,
 });
 const toAllowanceType = (raw: any): AllowanceType => ({
   id: raw.id, name: raw.name, type: (VALUE_TYPE_FROM_BACKEND[raw.type] as "fixed" | "percentage") ?? "fixed", defaultValue: raw.defaultValue, taxable: raw.taxable, active: raw.active,
@@ -65,7 +64,6 @@ const PayrollSetupPage = () => {
   const navigate = useNavigate();
   const [taxBrackets, setTaxBrackets] = useState<TaxBracket[]>([]);
   const [statutory, setStatutory] = useState<StatutoryDeduction[]>([]);
-  const [nhifTiers, setNhifTiers] = useState<NHIFTier[]>([]);
   const [allowances, setAllowances] = useState<AllowanceType[]>([]);
   const [otherDeductions, setOtherDeductions] = useState<OtherDeduction[]>([]);
   const [settings, setSettings] = useState<PayrollSettings>(emptySettings);
@@ -74,16 +72,14 @@ const PayrollSetupPage = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [bands, tiers, statutoryDeductions, allowanceTypes, deductions, rawSettings] = await Promise.all([
+      const [bands, statutoryDeductions, allowanceTypes, deductions, rawSettings] = await Promise.all([
         PayrollApi.getPayeBands(),
-        PayrollApi.getNhifTiers(),
         PayrollApi.getStatutoryDeductions(),
         PayrollApi.getAllowanceTypes(),
         PayrollApi.getOtherDeductions(),
         PayrollApi.getSettings(),
       ]);
       setTaxBrackets(bands.map(toTaxBracket));
-      setNhifTiers(tiers.map(toNhifTier));
       setStatutory(statutoryDeductions.map(toStatutoryDeduction));
       setAllowances(allowanceTypes.map(toAllowanceType));
       setOtherDeductions(deductions.map(toOtherDeduction));
@@ -99,15 +95,12 @@ const PayrollSetupPage = () => {
   const [editingBand, setEditingBand] = useState<TaxBracket | null>(null);
   const [statOpen, setStatOpen] = useState(false);
   const [editingStat, setEditingStat] = useState<StatutoryDeduction | null>(null);
-  const [nhifOpen, setNhifOpen] = useState(false);
-  const [editingNhif, setEditingNhif] = useState<NHIFTier | null>(null);
   const [alOpen, setAlOpen] = useState(false);
   const [editingAl, setEditingAl] = useState<AllowanceType | null>(null);
   const [dedOpen, setDedOpen] = useState(false);
   const [editingDed, setEditingDed] = useState<OtherDeduction | null>(null);
 
   const lastBandMax = taxBrackets.reduce((m, b) => (b.maxAmount && b.maxAmount > m ? b.maxAmount : m), 0);
-  const lastNhifMax = nhifTiers.reduce((m, t) => (t.maxSalary && t.maxSalary > m ? t.maxSalary : m), 0);
 
   const saveBand = async (data: Omit<TaxBracket, "id">) => {
     try {
@@ -133,33 +126,6 @@ const PayrollSetupPage = () => {
       load();
     } catch (err) {
       toast.error(getBackendErrorMessage(err, "Failed to delete PAYE band"));
-    }
-  };
-
-  const saveNhifTier = async (data: Omit<NHIFTier, "id">) => {
-    try {
-      const payload = { minSalary: data.minSalary, maxSalary: data.maxSalary, amount: data.amount, displayOrder: Math.round(data.minSalary) };
-      if (editingNhif) {
-        await PayrollApi.updateNhifTier(editingNhif.id, payload);
-        toast.success("Tier updated");
-      } else {
-        await PayrollApi.createNhifTier(payload);
-        toast.success("Tier added");
-      }
-      setNhifOpen(false);
-      load();
-    } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save NHIF tier"));
-    }
-  };
-
-  const deleteNhifTier = async (id: number) => {
-    try {
-      await PayrollApi.deleteNhifTier(id);
-      toast.success("Tier removed");
-      load();
-    } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete NHIF tier"));
     }
   };
 
@@ -239,7 +205,8 @@ const PayrollSetupPage = () => {
     try {
       const payload = {
         name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], category: CATEGORY_TO_BACKEND[data.category],
-        value: data.value, maxAmount: data.maxAmount, employerContribution: data.employerContribution, employerValue: data.employerValue,
+        value: data.value, maxAmount: data.maxAmount, minAmount: data.minAmount, thresholdAmount: data.thresholdAmount,
+        employerContribution: data.employerContribution, employerValue: data.employerValue,
       };
       if (editingStat) {
         await PayrollApi.updateStatutoryDeduction(editingStat.id, payload);
@@ -302,7 +269,6 @@ const PayrollSetupPage = () => {
         <TabsList>
           <TabsTrigger value="tax">Tax Brackets (PAYE)</TabsTrigger>
           <TabsTrigger value="statutory">Statutory Deductions</TabsTrigger>
-          <TabsTrigger value="nhif">NHIF Tiers</TabsTrigger>
           <TabsTrigger value="allowances">Allowances</TabsTrigger>
           <TabsTrigger value="deductions">Other Deductions</TabsTrigger>
           <TabsTrigger value="workflow">Approval Workflow</TabsTrigger>
@@ -360,7 +326,7 @@ const PayrollSetupPage = () => {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Statutory Deductions</CardTitle>
-                <CardDescription>Government-mandated deductions (NSSF, NHIF, Housing Levy)</CardDescription>
+                <CardDescription>Government-mandated deductions (NSSF, SHIF, Housing Levy)</CardDescription>
               </div>
               <Button size="sm" onClick={() => { setEditingStat(null); setStatOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Deduction</Button>
             </CardHeader>
@@ -382,9 +348,9 @@ const PayrollSetupPage = () => {
                   {statutory.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
-                      <TableCell><Badge variant="secondary" className="text-[10px]">{s.category === "nssf" ? "NSSF" : s.category === "housing_levy" ? "Housing Levy" : "Other"}</Badge></TableCell>
+                      <TableCell><Badge variant="secondary" className="text-[10px]">{s.category === "nssf" ? "NSSF" : s.category === "housing_levy" ? "Housing Levy" : s.category === "shif" ? "SHIF" : "Other"}</Badge></TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{s.type === "percentage" ? "%" : s.type === "tiered" ? "Tiered" : "Fixed"}</Badge></TableCell>
-                      <TableCell className="text-right">{s.type === "tiered" ? "See NHIF tiers" : s.type === "percentage" ? `${s.value}%` : `KES ${s.value.toLocaleString()}`}</TableCell>
+                      <TableCell className="text-right">{s.type === "percentage" ? `${s.value}%` : `KES ${s.value.toLocaleString()}`}</TableCell>
                       <TableCell className="text-right">{formatAmount(s.maxAmount)}</TableCell>
                       <TableCell className="text-center">{s.employerContribution ? <Badge variant="default" className="text-[10px]">{s.employerValue}%</Badge> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
                       <TableCell className="text-center">
@@ -394,48 +360,6 @@ const PayrollSetupPage = () => {
                         <div className="flex gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingStat(s); setStatOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteStatutory(s.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* NHIF Tiers */}
-        <TabsContent value="nhif">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-lg">NHIF Contribution Tiers</CardTitle>
-                <CardDescription>Monthly NHIF deductions based on gross salary bands</CardDescription>
-              </div>
-              <Button size="sm" onClick={() => { setEditingNhif(null); setNhifOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Tier</Button>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tier</TableHead>
-                    <TableHead className="text-right">Min Salary (KES)</TableHead>
-                    <TableHead className="text-right">Max Salary (KES)</TableHead>
-                    <TableHead className="text-right">Monthly Amount (KES)</TableHead>
-                    <TableHead className="w-24">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {nhifTiers.map((t, i) => (
-                    <TableRow key={t.id}>
-                      <TableCell className="font-medium">Tier {i + 1}</TableCell>
-                      <TableCell className="text-right">{t.minSalary.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">{t.maxSalary ? t.maxSalary.toLocaleString() : "Above"}</TableCell>
-                      <TableCell className="text-right font-semibold">{t.amount.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingNhif(t); setNhifOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteNhifTier(t.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -605,14 +529,6 @@ const PayrollSetupPage = () => {
         onOpenChange={setStatOpen}
         initial={editingStat}
         onSubmit={saveStatutory}
-      />
-
-      <NhifTierModal
-        open={nhifOpen}
-        onOpenChange={setNhifOpen}
-        initial={editingNhif}
-        defaultMin={lastNhifMax ? lastNhifMax + 1 : 0}
-        onSubmit={saveNhifTier}
       />
 
       <AllowanceTypeModal

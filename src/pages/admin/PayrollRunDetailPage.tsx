@@ -15,8 +15,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import StatCard from "@/components/dashboard/StatCard";
 import PayrollWorkflowStatus from "@/components/payroll/PayrollWorkflowStatus";
 import { useToast } from "@/hooks/use-toast";
-import { StaffApi } from "@/services/api";
+import { StaffApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { getStaffIdentifier } from "@/utils/staff";
 import { useAuth } from "@/context/AuthContext";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { PayrollApi } from "@/services/api";
@@ -35,7 +36,7 @@ const PayrollRunDetailPage = () => {
   const { toast } = useToast();
   const { user } = useAuth();
   const {
-    getSalary, payrollHistory, workflowSteps, makers,
+    getSalary, payrollHistory, workflowSteps, makers, refreshRuns,
     generateRun, submitRun, approveRun, rejectRun, markSentToBank,
   } = usePayroll();
   const [search, setSearch] = useState("");
@@ -44,6 +45,8 @@ const PayrollRunDetailPage = () => {
   const [rejectReason, setRejectReason] = useState("");
   const [approvals, setApprovals] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
+  const [paymentDetails, setPaymentDetails] = useState<Record<string, any>>({});
+  const [payrollAccount, setPayrollAccount] = useState<{ accountNumber: string; bankUuid: string | null } | null>(null);
 
   const permissions = user?.permissions ?? [];
   const canSendToBank = permissions.includes("PAYROLL_SEND_TO_BANK");
@@ -58,9 +61,27 @@ const PayrollRunDetailPage = () => {
         lastName: s.lastName,
         staffType: s.staffType,
         status: s.status,
+        idNumber: s.idNumber,
+        passportNumber: s.passportNumber,
+        staffId: s.staffId,
       })));
     }).catch(() => setInitialStaff([]));
+
+    PayrollApi.getAllStaffPaymentDetails().then((rows) => {
+      const byStaffId: Record<string, any> = {};
+      (Array.isArray(rows) ? rows : []).forEach((d: any) => { byStaffId[d.staffId] = d; });
+      setPaymentDetails(byStaffId);
+    }).catch(() => setPaymentDetails({}));
+
+    SchoolApi.getBankAccounts().then((rows) => {
+      const acc = (Array.isArray(rows) ? rows : []).find((a: any) => a.useForPayroll);
+      setPayrollAccount(acc ? { accountNumber: acc.accountNumber, bankUuid: acc.bank?.uuid ?? null } : null);
+    }).catch(() => setPayrollAccount(null));
   }, []);
+
+  // Refetch the run list every time this screen is opened — including navigating from one run's
+  // detail page straight to another's, which doesn't remount the component (only `id` changes).
+  useEffect(() => { refreshRuns().catch(() => {}); }, [id, refreshRuns]);
 
   const selectedRun = payrollHistory.find((r) => r.id === Number(id));
 
@@ -96,6 +117,7 @@ const PayrollRunDetailPage = () => {
           line: selectedRun.lines[s.uuid],
           isPaid: rawLine?.status === "PAID",
           payoutDestination: rawLine?.payoutDestination,
+          prorationNote: rawLine?.prorationNote,
           configured: true,
         };
       });
@@ -116,7 +138,7 @@ const PayrollRunDetailPage = () => {
   const q = search.trim().toLowerCase();
   const filteredRows = q
     ? displayRows.filter(({ staff }) => {
-        const hay = `${staff.uuid} ${staff.firstName} ${staff.lastName} ${(staff as any).email ?? ""} ${(staff as any).role ?? ""} ${(staff as any).department ?? ""}`.toLowerCase();
+        const hay = `${getStaffIdentifier(staff)} ${staff.firstName} ${staff.lastName} ${(staff as any).email ?? ""} ${(staff as any).role ?? ""} ${(staff as any).department ?? ""}`.toLowerCase();
         return hay.includes(q);
       })
     : displayRows;
@@ -198,7 +220,7 @@ const PayrollRunDetailPage = () => {
     filteredRows
       .filter((r) => r.configured)
       .map(({ staff, line, isPaid }) => ({
-        ID: staff.uuid,
+        ID: getStaffIdentifier(staff),
         Name: `${staff.firstName} ${staff.lastName}`,
         Basic: line.basic,
         Allowances: line.taxableAllowances + line.nonTaxableAllowances,
@@ -212,15 +234,38 @@ const PayrollRunDetailPage = () => {
         Status: isPaid ? "Paid" : "Pending",
       }));
 
+  /** Same bank as the payroll debit account = an intra-bank transfer, always "WITHIN BANK" regardless
+   *  of whatever settlement rail is on file — there's no inter-bank rail to name in that case. A
+   *  different bank with no rail explicitly configured falls back to PESALINK (Kenya's standard
+   *  low-value interbank rail, no special agreement needed unlike RTGS) rather than being left blank —
+   *  admins only need to override to RTGS/EFT for exceptional cases. This is the single source of truth
+   *  for the export; a future live bank-API integration should reuse it. */
+  const resolvePaymentTypeCode = (d: any): string => {
+    if (d?.paymentMethod === "BANK_TRANSFER") {
+      if (payrollAccount?.bankUuid && d?.bank?.uuid === payrollAccount.bankUuid) return "WITHIN BANK";
+      return d?.paymentType?.code || "PESALINK";
+    }
+    if (d?.paymentMethod === "MOBILE_MONEY") return d?.paymentType?.code ?? "";
+    return "";
+  };
+
   const buildBankExportRows = () =>
     filteredRows
       .filter((r) => r.configured)
-      .map(({ staff, line, payoutDestination }) => ({
-        ID: staff.uuid,
-        Name: `${staff.firstName} ${staff.lastName}`,
-        "Net Pay": line.net,
-        "Payout Destination": payoutDestination || "Not configured — set up in Staff Payment Details",
-      }));
+      .map(({ staff, line }) => {
+        const d = paymentDetails[staff.uuid];
+        const isBank = d?.paymentMethod === "BANK_TRANSFER";
+        const isMobile = d?.paymentMethod === "MOBILE_MONEY";
+        return {
+          "Debit Account": payrollAccount?.accountNumber ?? "",
+          "Beneficiary Account": isBank ? (d?.bankAccountNumber ?? "") : isMobile ? (d?.mobileNumber ?? "") : "",
+          "Beneficiary Name": `${staff.firstName} ${staff.lastName}`,
+          "Bank Code/ SWIFT Code": isBank ? (d?.bank?.bankCode || d?.bank?.swiftCode || "") : isMobile ? (d?.mobileMoneyProvider?.shortCode ?? "") : "",
+          "Payment Type": resolvePaymentTypeCode(d),
+          Currency: "KES",
+          Amount: line.net,
+        };
+      });
 
   const fileTag = () => (isBankReady ? monthLabel.replace(/\s+/g, "-") : `DRAFT-${monthLabel.replace(/\s+/g, "-")}`);
 
@@ -242,10 +287,33 @@ const PayrollRunDetailPage = () => {
     toast({ title: "CSV exported" });
   };
 
+  /** Force specific columns to Excel's native Text cell format ("@") so account/code numbers that
+   *  start with 0 survive being opened in Excel — without the "'" prefix hack, which some bank
+   *  portals ingest literally as part of the value instead of Excel's typed-as-text marker. */
+  const forceTextColumns = (ws: XLSX.WorkSheet, headers: string[], columnNames: string[]) => {
+    if (!ws["!ref"]) return;
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    columnNames.forEach((name) => {
+      const col = headers.indexOf(name);
+      if (col === -1) return;
+      for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c: col })];
+        if (!cell) continue;
+        cell.v = String(cell.v ?? "");
+        cell.t = "s";
+        cell.z = "@";
+      }
+    });
+  };
+
   const exportExcel = (bank = false) => {
     const data = bank ? buildBankExportRows() : buildExportRows();
     if (!data.length) return toast({ title: "Nothing to export" });
+    const headers = Object.keys(data[0]);
     const ws = XLSX.utils.json_to_sheet(data);
+    forceTextColumns(ws, headers, bank
+      ? ["Debit Account", "Beneficiary Account", "Bank Code/ SWIFT Code"]
+      : ["ID"]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Payroll");
     XLSX.writeFile(wb, `Payroll${bank ? "-Bank" : ""}-${fileTag()}.xlsx`);
@@ -279,7 +347,10 @@ const PayrollRunDetailPage = () => {
   const isMaker = selectedRun ? selectedRun.makerUuid === user?.userUuid : false;
   const isAssignedToCurrentStep = !!(currentStep && user?.userUuid &&
     currentStep.assignedUsers.some((u) => u.uuid === user.userUuid));
-  const canActOnCurrentStep = isAssignedToCurrentStep && !isMaker;
+  // A sole approver — the only person assigned to the current step — may act on their own submission,
+  // since requiring a second person would leave the run un-actionable by anyone.
+  const isSoleApproverOnStep = !!(currentStep && currentStep.assignedUsers.length === 1);
+  const canActOnCurrentStep = isAssignedToCurrentStep && (!isMaker || isSoleApproverOnStep);
 
   if (!selectedRun) {
     return (
@@ -313,8 +384,11 @@ const PayrollRunDetailPage = () => {
             {selectedRun.status === "PENDING_APPROVAL" && currentStep && (
               <div>Awaiting: <span className="font-medium">{currentStep.label}</span> (step {currentStepIndex + 1} of {activeSteps.length})</div>
             )}
-            {selectedRun.status === "PENDING_APPROVAL" && isMaker && (
+            {selectedRun.status === "PENDING_APPROVAL" && isMaker && !canActOnCurrentStep && (
               <div>You generated this run and cannot authorize or reject it yourself.</div>
+            )}
+            {selectedRun.status === "PENDING_APPROVAL" && isMaker && canActOnCurrentStep && (
+              <div>You're the sole authorizer for this step — you may review and act on your own submission.</div>
             )}
             {selectedRun.status === "PENDING_APPROVAL" && !isMaker && currentStep && !isAssignedToCurrentStep && (
               <div>Awaiting action from an assigned authorizer for "{currentStep.label}" — you are not assigned to this step.</div>
@@ -423,12 +497,17 @@ const PayrollRunDetailPage = () => {
                     </TableCell>
                   </TableRow>
                 )}
-                {filteredRows.map(({ staff, line, isPaid }) => {
+                {filteredRows.map(({ staff, line, isPaid, prorationNote }) => {
                   const allow = line.taxableAllowances + line.nonTaxableAllowances;
                   return (
                     <TableRow key={staff.uuid}>
-                      <TableCell className="font-mono text-xs">{staff.uuid}</TableCell>
-                      <TableCell className="font-medium">{staff.firstName} {staff.lastName}</TableCell>
+                      <TableCell className="font-mono text-xs">{getStaffIdentifier(staff)}</TableCell>
+                      <TableCell className="font-medium">
+                        {staff.firstName} {staff.lastName}
+                        {prorationNote && (
+                          <div className="text-[10px] font-normal text-amber-600 dark:text-amber-500">{prorationNote}</div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{line.basic.toLocaleString()}</TableCell>
                       <TableCell className="text-right text-success">{allow.toLocaleString()}</TableCell>
                       <TableCell className="text-right">{line.gross.toLocaleString()}</TableCell>

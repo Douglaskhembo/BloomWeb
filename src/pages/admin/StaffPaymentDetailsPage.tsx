@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Search, Pencil, CreditCard, Eye, Banknote, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { StaffApi, PayrollApi } from "@/services/api";
+import { StaffApi, PayrollApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { getStaffIdentifier } from "@/utils/staff";
 import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
 
 type PaymentMethod = "BANK_TRANSFER" | "MOBILE_MONEY" | "CHEQUE";
@@ -24,12 +25,14 @@ interface FormState {
   mobileMoneyProviderUuid: string;
   mobileNumber: string;
   mobileAccountName: string;
+  paymentTypeUuid: string;
 }
 
 const emptyForm: FormState = {
   paymentMethod: "BANK_TRANSFER",
   bankUuid: "", bankAccountNumber: "", bankAccountName: "", bankBranch: "",
   mobileMoneyProviderUuid: "", mobileNumber: "", mobileAccountName: "",
+  paymentTypeUuid: "",
 };
 
 const describe = (d: any, banks: any[], providers: any[]): string => {
@@ -52,6 +55,8 @@ const StaffPaymentDetailsPage = () => {
   const [details, setDetails] = useState<Record<string, any>>({});
   const [banks, setBanks] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
+  const [paymentTypes, setPaymentTypes] = useState<any[]>([]);
+  const [payrollDebitBankUuid, setPayrollDebitBankUuid] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -60,20 +65,26 @@ const StaffPaymentDetailsPage = () => {
 
   const load = async () => {
     try {
-      const [staffRows, detailRows, bankRows, providerRows] = await Promise.all([
+      const [staffRows, detailRows, bankRows, providerRows, typeRows, accountRows] = await Promise.all([
         StaffApi.getAll(),
         PayrollApi.getAllStaffPaymentDetails(),
         PayrollApi.getBanks(),
         PayrollApi.getMobileMoneyProviders(),
+        PayrollApi.getPaymentTypes(),
+        SchoolApi.getBankAccounts(),
       ]);
       setStaff((Array.isArray(staffRows) ? staffRows : []).map((s: any) => ({
         uuid: s.uuid, firstName: s.firstName, lastName: s.lastName, staffType: s.staffType, status: s.status,
+        idNumber: s.idNumber, passportNumber: s.passportNumber, staffId: s.staffId,
       })));
       const byStaffId: Record<string, any> = {};
       detailRows.forEach((d: any) => { byStaffId[d.staffId] = d; });
       setDetails(byStaffId);
       setBanks(bankRows.filter((b: any) => b.active));
       setProviders(providerRows.filter((p: any) => p.active));
+      setPaymentTypes(typeRows.filter((t: any) => t.active));
+      const payrollAccount = (Array.isArray(accountRows) ? accountRows : []).find((a: any) => a.useForPayroll);
+      setPayrollDebitBankUuid(payrollAccount?.bank?.uuid ?? null);
     } catch (err) {
       toast({ title: "Failed to load", description: getBackendErrorMessage(err), variant: "destructive" });
     }
@@ -82,7 +93,7 @@ const StaffPaymentDetailsPage = () => {
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(
-    () => staff.filter((s) => `${s.firstName} ${s.lastName} ${s.uuid}`.toLowerCase().includes(search.toLowerCase())),
+    () => staff.filter((s) => `${s.firstName} ${s.lastName} ${getStaffIdentifier(s)}`.toLowerCase().includes(search.toLowerCase())),
     [staff, search],
   );
 
@@ -98,6 +109,7 @@ const StaffPaymentDetailsPage = () => {
       mobileMoneyProviderUuid: existing.mobileMoneyProvider?.uuid ?? "",
       mobileNumber: existing.mobileNumber ?? "",
       mobileAccountName: existing.mobileAccountName ?? "",
+      paymentTypeUuid: existing.paymentType?.uuid ?? "",
     } : emptyForm);
     setOpen(true);
   };
@@ -116,6 +128,7 @@ const StaffPaymentDetailsPage = () => {
         mobileMoneyProviderUuid: form.paymentMethod === "MOBILE_MONEY" ? (form.mobileMoneyProviderUuid || null) : null,
         mobileNumber: form.paymentMethod === "MOBILE_MONEY" ? form.mobileNumber : null,
         mobileAccountName: form.paymentMethod === "MOBILE_MONEY" ? form.mobileAccountName : null,
+        paymentTypeUuid: form.paymentMethod !== "CHEQUE" && !isWithinBank ? (form.paymentTypeUuid || null) : null,
       });
       toast({ title: "Payment details saved" });
       setOpen(false);
@@ -131,6 +144,10 @@ const StaffPaymentDetailsPage = () => {
   const configuredCount = staff.filter((s) => details[s.uuid]).length;
   const viewingStaff = staff.find((s) => s.uuid === viewingId);
   const viewingDetails = viewingId ? details[viewingId] : null;
+  // Same bank as the payroll debit account = an intra-bank transfer — no settlement rail to pick,
+  // it's always "WITHIN BANK" (derived at export time, not stored here).
+  const isWithinBank = form.paymentMethod === "BANK_TRANSFER" && !!form.bankUuid && form.bankUuid === payrollDebitBankUuid;
+  const viewingIsWithinBank = viewingDetails?.paymentMethod === "BANK_TRANSFER" && viewingDetails?.bank?.uuid === payrollDebitBankUuid;
 
   return (
     <div className="space-y-6">
@@ -175,7 +192,7 @@ const StaffPaymentDetailsPage = () => {
                 const d = details[s.uuid];
                 return (
                   <TableRow key={s.uuid}>
-                    <TableCell className="font-mono text-xs">{s.uuid}</TableCell>
+                    <TableCell className="font-mono text-xs">{getStaffIdentifier(s)}</TableCell>
                     <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                     <TableCell><Badge variant="outline" className="text-[10px]">{s.staffType}</Badge></TableCell>
                     <TableCell>
@@ -228,6 +245,8 @@ const StaffPaymentDetailsPage = () => {
                   <dd className="font-medium text-right">{viewingDetails.bankAccountName || "—"}</dd>
                   <dt className="text-muted-foreground">Branch</dt>
                   <dd className="font-medium text-right">{viewingDetails.bankBranch || "—"}</dd>
+                  <dt className="text-muted-foreground">Payment Type</dt>
+                  <dd className="font-medium text-right">{viewingIsWithinBank ? "WITHIN BANK" : (viewingDetails.paymentType?.code || "—")}</dd>
                 </dl>
               )}
 
@@ -239,6 +258,8 @@ const StaffPaymentDetailsPage = () => {
                   <dd className="font-medium text-right font-mono">{viewingDetails.mobileNumber || "—"}</dd>
                   <dt className="text-muted-foreground">Registered Name</dt>
                   <dd className="font-medium text-right">{viewingDetails.mobileAccountName || "—"}</dd>
+                  <dt className="text-muted-foreground">Payment Type</dt>
+                  <dd className="font-medium text-right">{viewingDetails.paymentType?.code || "—"}</dd>
                 </dl>
               )}
 
@@ -265,7 +286,7 @@ const StaffPaymentDetailsPage = () => {
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>Payment Method</Label>
-              <Select value={form.paymentMethod} onValueChange={(v) => setForm((f) => ({ ...f, paymentMethod: v as PaymentMethod }))}>
+              <Select value={form.paymentMethod} onValueChange={(v) => setForm((f) => ({ ...f, paymentMethod: v as PaymentMethod, paymentTypeUuid: "" }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
@@ -279,7 +300,7 @@ const StaffPaymentDetailsPage = () => {
               <>
                 <div className="space-y-2">
                   <Label>Bank</Label>
-                  <Select value={form.bankUuid} onValueChange={(v) => setForm((f) => ({ ...f, bankUuid: v }))}>
+                  <Select value={form.bankUuid} onValueChange={(v) => setForm((f) => ({ ...f, bankUuid: v, paymentTypeUuid: v === payrollDebitBankUuid ? "" : f.paymentTypeUuid }))}>
                     <SelectTrigger><SelectValue placeholder="Select bank" /></SelectTrigger>
                     <SelectContent>
                       {banks.map((b) => <SelectItem key={b.uuid} value={b.uuid}>{b.name}</SelectItem>)}
@@ -303,6 +324,27 @@ const StaffPaymentDetailsPage = () => {
                   <Label>Account Name</Label>
                   <Input value={form.bankAccountName} onChange={(e) => setForm((f) => ({ ...f, bankAccountName: e.target.value }))} />
                 </div>
+                {isWithinBank ? (
+                  <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                    This staff member's bank matches the payroll debit account — this will be a within-bank
+                    transfer, so no payment type is needed (recorded as "WITHIN BANK" on the bank submission file).
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Payment Type</Label>
+                    <Select value={form.paymentTypeUuid} onValueChange={(v) => setForm((f) => ({ ...f, paymentTypeUuid: v }))}>
+                      <SelectTrigger><SelectValue placeholder="Select payment type" /></SelectTrigger>
+                      <SelectContent>
+                        {paymentTypes.filter((t) => t.category === "BANK").map((t) => <SelectItem key={t.uuid} value={t.uuid}>{t.code}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Settlement rail for the bank submission file — e.g. PESALINK, RTGS, or EFT. Leave
+                      unset to default to PESALINK; only pick one explicitly for exceptions (e.g. RTGS for
+                      large amounts).
+                    </p>
+                  </div>
+                )}
               </>
             )}
 
@@ -329,6 +371,16 @@ const StaffPaymentDetailsPage = () => {
                     <Label>Registered Name</Label>
                     <Input value={form.mobileAccountName} onChange={(e) => setForm((f) => ({ ...f, mobileAccountName: e.target.value }))} />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Payment Type</Label>
+                  <Select value={form.paymentTypeUuid} onValueChange={(v) => setForm((f) => ({ ...f, paymentTypeUuid: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select payment type" /></SelectTrigger>
+                    <SelectContent>
+                      {paymentTypes.filter((t) => t.category === "MOBILE_WALLET").map((t) => <SelectItem key={t.uuid} value={t.uuid}>{t.code}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">e.g. MPESA or AIRTEL MONEY.</p>
                 </div>
               </>
             )}

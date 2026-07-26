@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, ArrowLeft, Landmark, Smartphone } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Pencil, Trash2, ArrowLeft, Landmark, Smartphone, Tags } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { PayrollApi } from "@/services/api";
@@ -16,6 +17,8 @@ import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface Bank { id: number; uuid: string; name: string; bankCode?: string; swiftCode?: string; active: boolean; }
 interface Provider { id: number; uuid: string; name: string; shortCode?: string; active: boolean; }
+type PaymentTypeCategory = "BANK" | "MOBILE_WALLET";
+interface PaymentType { id: number; uuid: string; category: PaymentTypeCategory; code: string; active: boolean; }
 
 const BanksSetupPage = () => {
   const navigate = useNavigate();
@@ -30,11 +33,19 @@ const BanksSetupPage = () => {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [providerForm, setProviderForm] = useState({ name: "", shortCode: "" });
 
+  const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [editingType, setEditingType] = useState<PaymentType | null>(null);
+  const [typeForm, setTypeForm] = useState<{ category: PaymentTypeCategory; code: string }>({ category: "BANK", code: "" });
+
   const load = async () => {
     try {
-      const [bankRows, providerRows] = await Promise.all([PayrollApi.getBanks(), PayrollApi.getMobileMoneyProviders()]);
+      const [bankRows, providerRows, typeRows] = await Promise.all([
+        PayrollApi.getBanks(), PayrollApi.getMobileMoneyProviders(), PayrollApi.getPaymentTypes(),
+      ]);
       setBanks(bankRows);
       setProviders(providerRows);
+      setPaymentTypes(typeRows);
     } catch (err) {
       toast.error(getBackendErrorMessage(err, "Failed to load banks & mobile money providers"));
     }
@@ -102,6 +113,36 @@ const BanksSetupPage = () => {
     catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete provider")); }
   };
 
+  const openAddType = () => { setEditingType(null); setTypeForm({ category: "BANK", code: "" }); setTypeOpen(true); };
+  const openEditType = (t: PaymentType) => { setEditingType(t); setTypeForm({ category: t.category, code: t.code }); setTypeOpen(true); };
+
+  const saveType = async () => {
+    if (!typeForm.code.trim()) return;
+    try {
+      if (editingType) {
+        await PayrollApi.updatePaymentType(editingType.id, typeForm);
+        toast.success("Payment type updated");
+      } else {
+        await PayrollApi.createPaymentType(typeForm);
+        toast.success("Payment type added");
+      }
+      setTypeOpen(false);
+      load();
+    } catch (err) {
+      toast.error(getBackendErrorMessage(err, "Failed to save payment type"));
+    }
+  };
+
+  const toggleType = async (t: PaymentType) => {
+    try { await PayrollApi.togglePaymentType(t.id); load(); }
+    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to update payment type")); }
+  };
+
+  const deleteType = async (t: PaymentType) => {
+    try { await PayrollApi.deletePaymentType(t.id); toast.success("Payment type deleted"); load(); }
+    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete payment type")); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -118,6 +159,7 @@ const BanksSetupPage = () => {
         <TabsList>
           <TabsTrigger value="banks">Banks</TabsTrigger>
           <TabsTrigger value="mobile-money">Mobile Money Providers</TabsTrigger>
+          <TabsTrigger value="payment-types">Payment Types</TabsTrigger>
         </TabsList>
 
         <TabsContent value="banks">
@@ -203,6 +245,51 @@ const BanksSetupPage = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="payment-types">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2"><Tags className="w-5 h-5" /> Payment Types</CardTitle>
+                <CardDescription>
+                  Settlement rail written to the "Payment Type" column of the bank submission file — e.g.
+                  PESALINK, RTGS, EFT, WITHIN BANK for bank transfers, or MPESA, AIRTEL MONEY for mobile wallets.
+                  Always stored in caps regardless of how it's typed.
+                </CardDescription>
+              </div>
+              <Button size="sm" onClick={openAddType}><Plus className="w-4 h-4 mr-1" /> Add Payment Type</Button>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Provider</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-center">Active</TableHead>
+                    <TableHead className="w-24">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paymentTypes.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No payment types configured yet</TableCell></TableRow>
+                  ) : paymentTypes.map((t) => (
+                    <TableRow key={t.uuid}>
+                      <TableCell><Badge variant="secondary" className="text-[10px]">{t.category === "BANK" ? "Bank" : "Mobile Wallet"}</Badge></TableCell>
+                      <TableCell className="font-medium font-mono">{t.code}</TableCell>
+                      <TableCell className="text-center"><Switch checked={t.active} onCheckedChange={() => toggleType(t)} /></TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditType(t)}><Pencil className="w-3.5 h-3.5" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteType(t)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <Dialog open={bankOpen} onOpenChange={setBankOpen}>
@@ -247,6 +334,37 @@ const BanksSetupPage = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setProviderOpen(false)}>Cancel</Button>
             <Button onClick={saveProvider}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={typeOpen} onOpenChange={setTypeOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingType ? "Edit Payment Type" : "Add Payment Type"}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label>Provider</Label>
+              <Select value={typeForm.category} onValueChange={(v) => setTypeForm((f) => ({ ...f, category: v as PaymentTypeCategory }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BANK">Bank</SelectItem>
+                  <SelectItem value="MOBILE_WALLET">Mobile Wallet</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Input
+                value={typeForm.code}
+                onChange={(e) => setTypeForm((f) => ({ ...f, code: e.target.value }))}
+                placeholder="e.g. PESALINK, RTGS, EFT, WITHIN BANK, MPESA, AIRTEL MONEY"
+              />
+              <p className="text-xs text-muted-foreground">Saved in caps regardless of how it's typed here.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTypeOpen(false)}>Cancel</Button>
+            <Button onClick={saveType}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

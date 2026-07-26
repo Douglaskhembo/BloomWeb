@@ -42,6 +42,7 @@ export interface PayrollRunLine {
   status: "PAID" | "PENDING";
   paymentMethod?: string;
   payoutDestination?: string;
+  prorationNote?: string;
 }
 
 export interface PayrollRun {
@@ -98,6 +99,7 @@ const toPayrollRun = (raw: any): PayrollRun => {
     rawLines: rawLines.map((l) => ({
       id: l.id, staffId: l.staffId, staffName: l.staffName, status: l.status,
       paymentMethod: l.paymentMethod, payoutDestination: l.payoutDestination,
+      prorationNote: l.prorationNote,
     })),
     status: raw.status,
     makerUuid: raw.makerUuid,
@@ -180,6 +182,24 @@ export const PayrollProvider = ({ children }: { children: ReactNode }) => {
     refreshWorkflowSteps().catch(() => setWorkflowSteps([]));
     refreshMakers().catch(() => setMakers([]));
   }, [refreshSalaries, refreshRuns, refreshWorkflowSteps, refreshMakers]);
+
+  // Re-sync whenever the tab regains focus (switching back from another browser tab/app) — the
+  // fetch above only ever runs once at app boot, so without this a stale list (e.g. from a brief
+  // backend hiccup) would otherwise persist for the entire session.
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshRuns().catch(() => {});
+      refreshWorkflowSteps().catch(() => {});
+      refreshMakers().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshRuns, refreshWorkflowSteps, refreshMakers]);
 
   const setSalary = async (staffId: string, salary: StaffSalary) => {
     await PayrollApi.saveStaffSalary({

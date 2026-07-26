@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Calculator, History, ChevronRight } from "lucide-react";
+import { Calculator, History, ChevronRight, RefreshCw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
 import { useToast } from "@/hooks/use-toast";
@@ -76,9 +76,24 @@ const PayrollPage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { payrollHistory, workflowSteps, makers, generateRun } = usePayroll();
+  const { payrollHistory, workflowSteps, makers, generateRun, refreshRuns } = usePayroll();
   const [statusTab, setStatusTab] = useState<PayrollRunStatus | "ALL">("ALL");
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Refetch every time this screen is navigated to, not just once at app boot.
+  useEffect(() => { refreshRuns().catch(() => {}); }, [refreshRuns]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshRuns();
+    } catch (err) {
+      toast({ title: "Could not refresh", description: getBackendErrorMessage(err), variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const isMakerUser = makers.some((m) => m.user.uuid === user?.userUuid);
 
@@ -99,7 +114,15 @@ const PayrollPage = () => {
       toast({ title: "Payroll draft generated", description: "Review it and submit for authorization when ready." });
       navigate(`/admin/payroll/runs/${run.id}`);
     } catch (err) {
-      toast({ title: "Could not generate payroll", description: getBackendErrorMessage(err), variant: "destructive" });
+      const message = getBackendErrorMessage(err);
+      // The backend already has a run for this month but our local list didn't — re-sync so the
+      // "Open ... run" button appears instead of a dead-end "Generate" button next time.
+      if (message.toLowerCase().includes("already has an active run")) {
+        await refreshRuns().catch(() => {});
+        toast({ title: "Payroll list was out of date", description: "Refreshed — the existing run for this month should now be visible below." });
+      } else {
+        toast({ title: "Could not generate payroll", description: message, variant: "destructive" });
+      }
     } finally {
       setBusy(false);
     }
@@ -114,6 +137,10 @@ const PayrollPage = () => {
         </div>
         <div className="flex items-center gap-2">
           <PayrollNavTabs />
+
+          <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+          </Button>
 
           {activeRunForMonth ? (
             <Button size="sm" variant="outline" onClick={() => navigate(`/admin/payroll/runs/${activeRunForMonth.id}`)}>
