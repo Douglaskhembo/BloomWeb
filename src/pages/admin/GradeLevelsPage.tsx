@@ -8,14 +8,23 @@ import AddGradeModal from "@/components/modals/AddGradeModal";
 import { SchoolApi } from "@/services/api";
 import { GradeFormValue } from "@/types/types";
 
-interface GradeLevel { uuid: string; name: string; displayOrder: number; streams: number; active: boolean; }
+interface GradeLevel { uuid: string; name: string; displayOrder: number; streams: number; streamNames: string[]; active: boolean; }
+
+const toGradeLevel = (raw: any): GradeLevel => ({
+  uuid: raw.uuid,
+  name: raw.name,
+  displayOrder: raw.displayOrder,
+  streams: raw.streams,
+  streamNames: Array.isArray(raw.streamNames) ? raw.streamNames : [],
+  active: raw.status === "ACTIVE",
+});
 
 const GradeLevelsPage = () => {
   const [grades, setGrades] = useState<GradeLevel[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<GradeLevel | null>(null);
 
-  const load = () => SchoolApi.getGradeLevels().then(d => setGrades(Array.isArray(d) ? d : []));
+  const load = () => SchoolApi.getGradeLevels().then(d => setGrades((Array.isArray(d) ? d : []).map(toGradeLevel)));
   useEffect(() => { load(); }, []);
 
   const handleSave = async (v: GradeFormValue) => {
@@ -65,7 +74,12 @@ const GradeLevelsPage = () => {
               <TableRow key={g.uuid}>
                 <TableCell className="text-muted-foreground">{g.displayOrder}</TableCell>
                 <TableCell className="font-medium">{g.name}</TableCell>
-                <TableCell className="text-center">{g.streams}</TableCell>
+                <TableCell className="text-center">
+                  {g.streams}
+                  {g.streamNames.length > 0 && (
+                    <div className="text-xs text-muted-foreground font-normal">{g.streamNames.join(", ")}</div>
+                  )}
+                </TableCell>
                 <TableCell className="text-center">
                   <Badge variant={g.active ? "default" : "secondary"}>{g.active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
@@ -95,7 +109,7 @@ const GradeLevelsPage = () => {
         open={addOpen}
         onOpenChange={(o) => { setAddOpen(o); if (!o) setEditing(null); }}
         defaultOrder={grades.length + 1}
-        initialValues={editing ? { name: editing.name, displayOrder: editing.displayOrder, streams: editing.streams, status: editing.active ? "active" : "inactive" } : undefined}
+        initialValues={editing ? { name: editing.name, displayOrder: editing.displayOrder, streams: editing.streams, streamNames: editing.streamNames, status: editing.active ? "active" : "inactive" } : undefined}
         onSave={handleSave}
       />
     </Card>
