@@ -6,10 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   DollarSign, Download, Send, TrendingUp, Search, ArrowLeft, Calculator,
-  FileText, FileSpreadsheet, FileType, CheckCircle2, XCircle, Banknote, RotateCcw,
+  FileText, FileSpreadsheet, FileType, CheckCircle2, XCircle, Banknote, RotateCcw, Smartphone,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import StatCard from "@/components/dashboard/StatCard";
@@ -42,6 +43,7 @@ const PayrollRunDetailPage = () => {
   const [search, setSearch] = useState("");
   const [initialStaff, setInitialStaff] = useState<any[]>([]);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [viewingStaffUuid, setViewingStaffUuid] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [approvals, setApprovals] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
@@ -215,6 +217,9 @@ const PayrollRunDetailPage = () => {
 
   const canDownloadDraft = !!selectedRun;
   const isBankReady = selectedRun?.status === "APPROVED" || selectedRun?.status === "SENT_TO_BANK";
+
+  const viewingRow = viewingStaffUuid ? displayRows.find((r) => r.staff.uuid === viewingStaffUuid) : undefined;
+  const viewingPaymentDetails = viewingStaffUuid ? paymentDetails[viewingStaffUuid] : undefined;
 
   const buildExportRows = () =>
     filteredRows
@@ -500,7 +505,7 @@ const PayrollRunDetailPage = () => {
                 {filteredRows.map(({ staff, line, isPaid, prorationNote }) => {
                   const allow = line.taxableAllowances + line.nonTaxableAllowances;
                   return (
-                    <TableRow key={staff.uuid}>
+                    <TableRow key={staff.uuid} className="cursor-pointer hover:bg-muted/50" onClick={() => setViewingStaffUuid(staff.uuid)}>
                       <TableCell className="font-mono text-xs">{getStaffIdentifier(staff)}</TableCell>
                       <TableCell className="font-medium">
                         {staff.firstName} {staff.lastName}
@@ -552,6 +557,145 @@ const PayrollRunDetailPage = () => {
             <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={!rejectReason.trim() || busy} onClick={confirmReject}>Reject</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingStaffUuid} onOpenChange={(open) => !open && setViewingStaffUuid(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Payslip — {monthLabel}</DialogTitle>
+            <DialogDescription>
+              {viewingRow ? `${viewingRow.staff.firstName} ${viewingRow.staff.lastName} — ${getStaffIdentifier(viewingRow.staff)}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {viewingRow && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                <div className="text-xs text-muted-foreground">Pay Period: {monthLabel}</div>
+                <Badge variant={viewingRow.isPaid ? "default" : STATUS_BADGE_VARIANT[selectedRun.status]} className="text-[10px]">
+                  {viewingRow.isPaid ? "Paid" : STATUS_LABEL[selectedRun.status]}
+                </Badge>
+              </div>
+
+              {viewingRow.prorationNote && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">{viewingRow.prorationNote}</p>
+              )}
+
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Earnings</h4>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Basic Salary</span>
+                    <span>{formatKES(viewingRow.line.basic)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Taxable Allowances</span>
+                    <span>{formatKES(viewingRow.line.taxableAllowances)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Non-Taxable Allowances</span>
+                    <span>{formatKES(viewingRow.line.nonTaxableAllowances)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between text-sm font-semibold">
+                    <span>Gross Pay</span>
+                    <span>{formatKES(viewingRow.line.gross)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Deductions</h4>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">PAYE</span>
+                    <span className="text-destructive">{formatKES(viewingRow.line.paye)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">NSSF</span>
+                    <span className="text-destructive">{formatKES(viewingRow.line.nssf)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">SHIF</span>
+                    <span className="text-destructive">{formatKES(viewingRow.line.nhif)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Housing Levy</span>
+                    <span className="text-destructive">{formatKES(viewingRow.line.housingLevy)}</span>
+                  </div>
+                  {viewingRow.line.otherDeductions > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Other Deductions</span>
+                      <span className="text-destructive">{formatKES(viewingRow.line.otherDeductions)}</span>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex justify-between text-sm font-semibold">
+                    <span>Total Deductions</span>
+                    <span className="text-destructive">{formatKES(viewingRow.line.totalDeductions)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-between items-center p-3 rounded-lg bg-primary/10">
+                <span className="font-semibold">Net Pay</span>
+                <span className="text-lg font-bold text-primary">{formatKES(viewingRow.line.net)}</span>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Payment Details</h4>
+                {!viewingPaymentDetails ? (
+                  <p className="text-xs text-muted-foreground">Not configured — set up under Staff Payment Details.</p>
+                ) : (
+                  <div className="p-3 rounded-lg border space-y-2">
+                    <div className="flex items-center gap-2">
+                      {viewingPaymentDetails.paymentMethod === "MOBILE_MONEY" ? (
+                        <Smartphone className="w-4 h-4 text-muted-foreground" />
+                      ) : (
+                        <Banknote className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <Badge variant="secondary" className="text-[10px]">{viewingPaymentDetails.paymentMethod?.replace("_", " ")}</Badge>
+                    </div>
+                    {viewingPaymentDetails.paymentMethod === "BANK_TRANSFER" && (
+                      <dl className="grid grid-cols-2 gap-y-1.5 text-sm">
+                        <dt className="text-muted-foreground">Bank</dt>
+                        <dd className="text-right">{viewingPaymentDetails.bank?.name ?? "—"}</dd>
+                        <dt className="text-muted-foreground">Account Number</dt>
+                        <dd className="text-right font-mono">{viewingPaymentDetails.bankAccountNumber || "—"}</dd>
+                        <dt className="text-muted-foreground">Account Name</dt>
+                        <dd className="text-right">{viewingPaymentDetails.bankAccountName || "—"}</dd>
+                        <dt className="text-muted-foreground">Branch</dt>
+                        <dd className="text-right">{viewingPaymentDetails.bankBranch || "—"}</dd>
+                        <dt className="text-muted-foreground">Payment Type</dt>
+                        <dd className="text-right">{resolvePaymentTypeCode(viewingPaymentDetails) || "—"}</dd>
+                      </dl>
+                    )}
+                    {viewingPaymentDetails.paymentMethod === "MOBILE_MONEY" && (
+                      <dl className="grid grid-cols-2 gap-y-1.5 text-sm">
+                        <dt className="text-muted-foreground">Provider</dt>
+                        <dd className="text-right">{viewingPaymentDetails.mobileMoneyProvider?.name ?? "—"}</dd>
+                        <dt className="text-muted-foreground">Mobile Number</dt>
+                        <dd className="text-right font-mono">{viewingPaymentDetails.mobileNumber || "—"}</dd>
+                        <dt className="text-muted-foreground">Registered Name</dt>
+                        <dd className="text-right">{viewingPaymentDetails.mobileAccountName || "—"}</dd>
+                        <dt className="text-muted-foreground">Payment Type</dt>
+                        <dd className="text-right">{resolvePaymentTypeCode(viewingPaymentDetails) || "—"}</dd>
+                      </dl>
+                    )}
+                    {viewingPaymentDetails.paymentMethod === "CHEQUE" && (
+                      <p className="text-sm text-muted-foreground">Paid by physical cheque — no account details required.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setViewingStaffUuid(null)}>Close</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
