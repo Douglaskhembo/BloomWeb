@@ -12,6 +12,7 @@ import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES, PayrollConfig } from "@/lib/payroll/kenya";
 import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import StaffSalaryModal from "@/components/modal/StaffSalaryModal";
+import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
 
 const computeFor = (s: StaffSalary, config?: Partial<PayrollConfig>) => {
   const taxable = DEFAULT_ALLOWANCES.filter((a) => a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
@@ -77,9 +78,12 @@ const StaffSalariesPage = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Staff Salaries</h1>
-        <p className="text-muted-foreground">Configure basic pay, allowances and deductions per staff member</p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Staff Salaries</h1>
+          <p className="text-muted-foreground">Configure basic pay, allowances and deductions per staff member</p>
+        </div>
+        <PayrollNavTabs />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

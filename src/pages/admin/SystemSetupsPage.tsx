@@ -1,6 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Settings2, GraduationCap } from "lucide-react";
+import { Settings2, GraduationCap, Landmark } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const setupCards = [
@@ -14,6 +14,14 @@ const setupCards = [
     activeCount: 11,
     totalCount: 11,
     totalLabel: "grades",
+  },
+  {
+    to: "/admin/setup-banks",
+    icon: Landmark,
+    iconBg: "bg-success/10",
+    iconColor: "text-success",
+    title: "Banks & Mobile Money",
+    description: "Master list of banks and mobile money providers (M-Pesa, Airtel Money) for payroll disbursement",
   },
 ];
 
@@ -43,8 +51,12 @@ const SystemSetupsPage = () => {
                   <h3 className="font-semibold">{card.title}</h3>
                   <p className="text-sm text-muted-foreground mt-1">{card.description}</p>
                   <div className="flex gap-2 mt-3">
-                    <Badge variant="outline" className="text-[10px]">{card.activeCount} active</Badge>
-                    <Badge variant="secondary" className="text-[10px]">{card.totalCount} {card.totalLabel}</Badge>
+                    {card.activeCount !== undefined && (
+                      <Badge variant="outline" className="text-[10px]">{card.activeCount} active</Badge>
+                    )}
+                    {card.totalCount !== undefined && (
+                      <Badge variant="secondary" className="text-[10px]">{card.totalCount} {card.totalLabel}</Badge>
+                    )}
                   </div>
                 </div>
               </div>

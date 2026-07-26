@@ -17,6 +17,7 @@ import StatutoryDeductionModal from "@/components/modal/StatutoryDeductionModal"
 import NhifTierModal from "@/components/modal/NhifTierModal";
 import AllowanceTypeModal from "@/components/modal/AllowanceTypeModal";
 import OtherDeductionModal from "@/components/modal/OtherDeductionModal";
+import PayrollWorkflowSetup from "@/components/payroll/PayrollWorkflowSetup";
 import { PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
@@ -304,6 +305,7 @@ const PayrollSetupPage = () => {
           <TabsTrigger value="nhif">NHIF Tiers</TabsTrigger>
           <TabsTrigger value="allowances">Allowances</TabsTrigger>
           <TabsTrigger value="deductions">Other Deductions</TabsTrigger>
+          <TabsTrigger value="workflow">Approval Workflow</TabsTrigger>
           <TabsTrigger value="settings">General Settings</TabsTrigger>
         </TabsList>
 
@@ -534,6 +536,11 @@ const PayrollSetupPage = () => {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Approval Workflow */}
+        <TabsContent value="workflow">
+          <PayrollWorkflowSetup />
         </TabsContent>
 
         {/* General Settings */}

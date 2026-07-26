@@ -25,6 +25,7 @@ import SettingsPage from "./pages/admin/SettingsPage";
 import TeachersPage from "./pages/admin/TeachersPage";
 import LeaveManagementPage from "./pages/admin/LeaveManagementPage";
 import PayrollPage from "./pages/admin/PayrollPage";
+import PayrollRunDetailPage from "./pages/admin/PayrollRunDetailPage";
 import SuppliersPage from "./pages/admin/SuppliersPage";
 import BillsPage from "./pages/admin/BillsPage";
 import UsersPage from "./pages/admin/UsersPage";
@@ -43,6 +44,8 @@ import SubjectsSetupPage from "./pages/admin/SubjectsSetupPage";
 import PayrollSetupPage from "./pages/admin/PayrollSetupPage";
 import GradingSetupPage from "./pages/admin/GradingSetupPage";
 import StaffSalariesPage from "./pages/admin/StaffSalariesPage";
+import StaffPaymentDetailsPage from "./pages/admin/StaffPaymentDetailsPage";
+import BanksSetupPage from "./pages/admin/BanksSetupPage";
 import BiometricsSetupPage from "./pages/admin/BiometricsSetupPage";
 import AttendancePage from "./pages/admin/AttendancePage";
 // Parent
@@ -100,7 +103,10 @@ function AppRoutes() {
         <Route path="teachers" element={<TeachersPage />} />
         <Route path="leave" element={<LeaveManagementPage />} />
         <Route path="payroll" element={<PayrollPage />} />
+        <Route path="payroll/runs/:id" element={<PayrollRunDetailPage />} />
         <Route path="staff-salaries" element={<StaffSalariesPage />} />
+        <Route path="staff-payment-details" element={<StaffPaymentDetailsPage />} />
+        <Route path="setup-banks" element={<BanksSetupPage />} />
         <Route path="suppliers" element={<SuppliersPage />} />
         <Route path="bills" element={<BillsPage />} />
         <Route path="users" element={<UsersPage />} />

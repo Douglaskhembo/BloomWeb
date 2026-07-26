@@ -672,6 +672,77 @@ export const PayrollApi = {
     try { return unwrap(await payrollAPI.get('/settings')); } catch { return null; }
   },
   saveSettings: async (data: any): Promise<any> => unwrap(await payrollAPI.put('/settings', data)),
+
+  // Staff salaries
+  getAllStaffSalaries: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/staff-salaries')); } catch { return []; }
+  },
+  saveStaffSalary: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/staff-salaries', data)),
+  deleteStaffSalary: async (staffId: string): Promise<void> => { await payrollAPI.delete(`/staff-salaries/${staffId}`); },
+
+  // Banks
+  getBanks: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/banks')); } catch { return []; }
+  },
+  createBank: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/banks', data)),
+  updateBank: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/banks/${id}`, data)),
+  toggleBank: async (id: number): Promise<void> => { await payrollAPI.patch(`/banks/${id}/toggle`); },
+  deleteBank: async (id: number): Promise<void> => { await payrollAPI.delete(`/banks/${id}`); },
+
+  // Mobile money providers
+  getMobileMoneyProviders: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/mobile-money-providers')); } catch { return []; }
+  },
+  createMobileMoneyProvider: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/mobile-money-providers', data)),
+  updateMobileMoneyProvider: async (id: number, data: any): Promise<any> => unwrap(await payrollAPI.put(`/mobile-money-providers/${id}`, data)),
+  toggleMobileMoneyProvider: async (id: number): Promise<void> => { await payrollAPI.patch(`/mobile-money-providers/${id}/toggle`); },
+  deleteMobileMoneyProvider: async (id: number): Promise<void> => { await payrollAPI.delete(`/mobile-money-providers/${id}`); },
+
+  // Staff payment details (Finance-only bank/mobile-money info)
+  getAllStaffPaymentDetails: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/staff-payment-details')); } catch { return []; }
+  },
+  getStaffPaymentDetails: async (staffId: string): Promise<any> => {
+    try { return unwrap(await payrollAPI.get(`/staff-payment-details/${staffId}`)); } catch { return null; }
+  },
+  saveStaffPaymentDetails: async (data: any): Promise<any> => unwrap(await payrollAPI.put('/staff-payment-details', data)),
+
+  // Self-service: the logged-in staff member's own payslip history (any staff, not just teachers)
+  getMyPayslips: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/my-payslips')); } catch { return []; }
+  },
+
+  // Payroll makers (who can generate/submit payroll)
+  getMakers: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/makers')); } catch { return []; }
+  },
+  addMaker: async (userUuid: string): Promise<any> => unwrap(await payrollAPI.post('/makers', { userUuid })),
+  removeMaker: async (uuid: string): Promise<void> => { await payrollAPI.delete(`/makers/${uuid}`); },
+
+  // Approval workflow setup
+  getWorkflowSteps: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/workflow-steps')); } catch { return []; }
+  },
+  createWorkflowStep: async (data: any): Promise<any> => unwrap(await payrollAPI.post('/workflow-steps', data)),
+  updateWorkflowStep: async (uuid: string, data: any): Promise<any> => unwrap(await payrollAPI.put(`/workflow-steps/${uuid}`, data)),
+  deleteWorkflowStep: async (uuid: string): Promise<void> => { await payrollAPI.delete(`/workflow-steps/${uuid}`); },
+  reorderWorkflowSteps: async (stepUuids: string[]): Promise<any[]> =>
+    unwrapList(await payrollAPI.patch('/workflow-steps/reorder', { stepUuids })),
+
+  // Payroll runs (maker → approval workflow → sent to bank)
+  getRuns: async (): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get('/runs')); } catch { return []; }
+  },
+  getRun: async (id: number): Promise<any> => unwrap(await payrollAPI.get(`/runs/${id}`)),
+  getRunApprovals: async (id: number): Promise<any[]> => {
+    try { return unwrapList(await payrollAPI.get(`/runs/${id}/approvals`)); } catch { return []; }
+  },
+  processRun: async (year: number, monthIndex: number, monthLabel: string): Promise<any> =>
+    unwrap(await payrollAPI.post('/runs/process', null, { params: { year, monthIndex, monthLabel } })),
+  submitRun: async (id: number): Promise<any> => unwrap(await payrollAPI.post(`/runs/${id}/submit`)),
+  decideRun: async (id: number, decision: "APPROVE" | "REJECT", comment?: string): Promise<any> =>
+    unwrap(await payrollAPI.post(`/runs/${id}/decision`, { decision, comment })),
+  sendRunToBank: async (id: number): Promise<any> => unwrap(await payrollAPI.post(`/runs/${id}/send-to-bank`)),
 };
 
 export const CommunicationApi = {
