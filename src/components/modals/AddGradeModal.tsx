@@ -19,7 +19,13 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
   const [name, setName] = useState("");
   const [displayOrder, setOrder] = useState<number>(defaultOrder);
   const [streams, setStreams] = useState<number>(1);
+  // Raw text buffer for the Streams input — kept separate from `streams` so the field can sit
+  // empty mid-edit instead of a min-1 clamp snapping it back to "1" after every keystroke
+  // (which made it impossible to clear the field to type a new number).
+  const [streamsInput, setStreamsInput] = useState<string>("1");
   const [streamNames, setStreamNames] = useState<string[]>([]);
+  const [capacity, setCapacity] = useState<string>("");
+  const [streamCapacities, setStreamCapacities] = useState<string[]>([]);
   const [status, setStatus] = useState<"active" | "inactive">("active");
 
   useEffect(() => {
@@ -27,16 +33,24 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
       setName(initialValues?.name ?? "");
       setOrder(initialValues?.displayOrder ?? defaultOrder);
       setStreams(initialValues?.streams ?? 1);
+      setStreamsInput(String(initialValues?.streams ?? 1));
       setStreamNames(initialValues?.streamNames ?? []);
+      setCapacity(initialValues?.capacity ? String(initialValues.capacity) : "");
+      setStreamCapacities((initialValues?.streamCapacities ?? []).map((c) => (c ? String(c) : "")));
       setStatus(initialValues?.status ?? "active");
     }
   }, [open, defaultOrder, initialValues]);
 
-  // Keep the name-input list in lockstep with the stream count — resize (not replace) so names
-  // already typed survive bumping the count up or down.
+  // Keep the name/capacity-input lists in lockstep with the stream count — resize (not replace)
+  // so values already typed survive bumping the count up or down.
   const setStreamCount = (count: number) => {
     setStreams(count);
     setStreamNames((prev) => {
+      const next = prev.slice(0, count);
+      while (next.length < count) next.push("");
+      return next;
+    });
+    setStreamCapacities((prev) => {
       const next = prev.slice(0, count);
       while (next.length < count) next.push("");
       return next;
@@ -45,6 +59,10 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
 
   const setStreamName = (index: number, value: string) => {
     setStreamNames((prev) => prev.map((n, i) => (i === index ? value : n)));
+  };
+
+  const setStreamCapacity = (index: number, value: string) => {
+    setStreamCapacities((prev) => prev.map((c, i) => (i === index ? value : c)));
   };
 
   const submit = () => {
@@ -60,9 +78,10 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
         toast.error("Stream names must be unique within this grade");
         return;
       }
-      onSave({ name: name.trim(), displayOrder, streams, streamNames: trimmed, status });
+      const caps = Array.from({ length: streams }, (_, i) => Number(streamCapacities[i]) || undefined);
+      onSave({ name: name.trim(), displayOrder, streams, streamNames: trimmed, streamCapacities: caps as number[], status });
     } else {
-      onSave({ name: name.trim(), displayOrder, streams, streamNames: [], status });
+      onSave({ name: name.trim(), displayOrder, streams, streamNames: [], capacity: Number(capacity) || undefined, status });
     }
     onOpenChange(false);
   };
@@ -86,25 +105,61 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
           </div>
           <div className="space-y-2">
             <Label>Streams</Label>
-            <Input type="number" min={1} value={streams} onChange={(e) => setStreamCount(Math.max(1, Number(e.target.value)))} />
+            <Input
+              type="number"
+              min={1}
+              value={streamsInput}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setStreamsInput(raw);
+                const n = Number(raw);
+                if (raw !== "" && Number.isInteger(n) && n >= 1) setStreamCount(n);
+              }}
+              onBlur={() => {
+                const n = Math.max(1, Math.floor(Number(streamsInput)) || 1);
+                setStreamsInput(String(n));
+                setStreamCount(n);
+              }}
+            />
           </div>
 
-          {streams > 1 && (
+          {streams > 1 ? (
             <div className="space-y-2 col-span-2">
-              <Label>Stream Names</Label>
+              <Label>Stream Names & Capacity</Label>
               <div className="space-y-2">
                 {Array.from({ length: streams }).map((_, i) => (
-                  <Input
-                    key={i}
-                    value={streamNames[i] ?? ""}
-                    onChange={(e) => setStreamName(i, e.target.value)}
-                    placeholder={`Stream ${i + 1} name, e.g. East`}
-                  />
+                  <div key={i} className="flex gap-2">
+                    <Input
+                      className="flex-1"
+                      value={streamNames[i] ?? ""}
+                      onChange={(e) => setStreamName(i, e.target.value)}
+                      placeholder={`Stream ${i + 1} name, e.g. East`}
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      className="w-28"
+                      value={streamCapacities[i] ?? ""}
+                      onChange={(e) => setStreamCapacity(i, e.target.value)}
+                      placeholder="Capacity"
+                    />
+                  </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                Exactly {streams} name{streams === 1 ? "" : "s"} required — one per stream.
+                Exactly {streams} name{streams === 1 ? "" : "s"} required — one per stream. Leave capacity blank for unlimited.
               </p>
+            </div>
+          ) : (
+            <div className="space-y-2 col-span-2">
+              <Label>Capacity</Label>
+              <Input
+                type="number"
+                min={0}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                placeholder="Leave blank for unlimited"
+              />
             </div>
           )}
 

@@ -8,7 +8,10 @@ import AddGradeModal from "@/components/modals/AddGradeModal";
 import { SchoolApi } from "@/services/api";
 import { GradeFormValue } from "@/types/types";
 
-interface GradeLevel { uuid: string; name: string; displayOrder: number; streams: number; streamNames: string[]; active: boolean; }
+interface GradeLevel {
+  uuid: string; name: string; displayOrder: number; streams: number; streamNames: string[];
+  capacity?: number; streamCapacities: (number | undefined)[]; active: boolean;
+}
 
 const toGradeLevel = (raw: any): GradeLevel => ({
   uuid: raw.uuid,
@@ -16,6 +19,8 @@ const toGradeLevel = (raw: any): GradeLevel => ({
   displayOrder: raw.displayOrder,
   streams: raw.streams,
   streamNames: Array.isArray(raw.streamNames) ? raw.streamNames : [],
+  capacity: raw.capacity ?? undefined,
+  streamCapacities: Array.isArray(raw.streamCapacities) ? raw.streamCapacities.map((c: any) => c ?? undefined) : [],
   active: raw.status === "ACTIVE",
 });
 
@@ -65,6 +70,7 @@ const GradeLevelsPage = () => {
               <TableHead>Order</TableHead>
               <TableHead>Grade Name</TableHead>
               <TableHead className="text-center">Streams</TableHead>
+              <TableHead className="text-center">Capacity</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -79,6 +85,17 @@ const GradeLevelsPage = () => {
                   {g.streamNames.length > 0 && (
                     <div className="text-xs text-muted-foreground font-normal">{g.streamNames.join(", ")}</div>
                   )}
+                </TableCell>
+                <TableCell className="text-center">
+                  {g.streams > 1 ? (
+                    g.streamNames.length > 0 ? (
+                      <div className="text-xs">
+                        {g.streamNames.map((name, i) => (
+                          <div key={name}>{name}: {g.streamCapacities[i] ?? "Unlimited"}</div>
+                        ))}
+                      </div>
+                    ) : "—"
+                  ) : (g.capacity ?? "Unlimited")}
                 </TableCell>
                 <TableCell className="text-center">
                   <Badge variant={g.active ? "default" : "secondary"}>{g.active ? "Active" : "Inactive"}</Badge>
@@ -99,7 +116,7 @@ const GradeLevelsPage = () => {
               </TableRow>
             ))}
             {grades.length === 0 && (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No grade levels yet.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No grade levels yet.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -109,7 +126,11 @@ const GradeLevelsPage = () => {
         open={addOpen}
         onOpenChange={(o) => { setAddOpen(o); if (!o) setEditing(null); }}
         defaultOrder={grades.length + 1}
-        initialValues={editing ? { name: editing.name, displayOrder: editing.displayOrder, streams: editing.streams, streamNames: editing.streamNames, status: editing.active ? "active" : "inactive" } : undefined}
+        initialValues={editing ? {
+          name: editing.name, displayOrder: editing.displayOrder, streams: editing.streams, streamNames: editing.streamNames,
+          capacity: editing.capacity, streamCapacities: editing.streamCapacities.map((c) => c ?? 0),
+          status: editing.active ? "active" : "inactive",
+        } : undefined}
         onSave={handleSave}
       />
     </Card>

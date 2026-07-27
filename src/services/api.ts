@@ -426,6 +426,24 @@ export const FeeApi = {
     await feesAPI.delete(`/items/${id}`);
   },
 
+  // Fee payments
+  getPayments: async (studentId?: string): Promise<any[]> => {
+    try {
+      const res = await feesAPI.get('/payments', { params: studentId ? { studentId } : {} });
+      return unwrapList(res);
+    } catch { return []; }
+  },
+  getBalance: async (studentId: string): Promise<number> => {
+    try { return unwrap(await feesAPI.get(`/payments/balance/${studentId}`)) ?? 0; } catch { return 0; }
+  },
+  recordPayment: async (data: any): Promise<any> => {
+    const res = await feesAPI.post('/payments', data);
+    return unwrap(res);
+  },
+  deletePayment: async (id: number): Promise<void> => {
+    await feesAPI.delete(`/payments/${id}`);
+  },
+
   // Fee structures (Maker / Approver / Approved workflow)
   getStructures: async (): Promise<any[]> => {
     try {

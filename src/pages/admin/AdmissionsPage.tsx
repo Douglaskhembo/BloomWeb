@@ -22,7 +22,6 @@ const STAGE_BADGE: Record<string, "default" | "secondary" | "outline" | "destruc
   ENROLLED: "default",
 };
 
-const streams = ["A", "B", "C", "-"];
 const documentTypes = ["Birth Certificate", "Transfer Letter", "Previous School Report", "Passport Photo", "Medical Records", "Immunization Card", "Parent/Guardian ID Copy", "Other"];
 
 interface UploadedDoc { name: string; type: string; size: number; file: File; }
@@ -39,12 +38,17 @@ const AdmissionsPage = () => {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [grades, setGrades] = useState<{ uuid: string; name: string; order: number }[]>([]);
+  const [grades, setGrades] = useState<{ uuid: string; name: string; displayOrder: number; streamNames: string[] }[]>([]);
 
   useEffect(() => {
-    SchoolApi.getGradeLevels().then((data) =>
-      setGrades(Array.isArray(data) ? [...data].sort((a, b) => a.order - b.order) : [])
-    );
+    SchoolApi.getGradeLevels().then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      setGrades(
+        list
+          .map((g: any) => ({ uuid: g.uuid, name: g.name, displayOrder: g.displayOrder, streamNames: Array.isArray(g.streamNames) ? g.streamNames : [] }))
+          .sort((a, b) => a.displayOrder - b.displayOrder)
+      );
+    });
   }, []);
 
   const [form, setForm] = useState({
@@ -55,6 +59,8 @@ const AdmissionsPage = () => {
   });
   const [documents, setDocuments] = useState<UploadedDoc[]>([]);
   const [selectedDocType, setSelectedDocType] = useState("");
+
+  const selectedGradeStreams = grades.find((g) => g.uuid === form.gradeLevelUuid)?.streamNames ?? [];
 
   const resetForm = () => {
     setForm({ firstName: "", lastName: "", gender: "", dob: "", grade: "", gradeLevelUuid: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
@@ -72,7 +78,7 @@ const AdmissionsPage = () => {
   };
 
   const handleSubmit = async () => {
-    if (!form.firstName || !form.lastName || !form.gender || !form.dob || !form.grade || !form.parentName || !form.parentPhone) {
+    if (!form.firstName || !form.lastName || !form.gender || !form.dob || !form.grade || !form.parentName || !form.parentPhone || (selectedGradeStreams.length > 0 && !form.stream)) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -183,19 +189,23 @@ const AdmissionsPage = () => {
                   <Label>Grade <span className="text-destructive">*</span></Label>
                   <Select value={form.grade} onValueChange={v => {
                       const gl = grades.find(g => g.name === v);
-                      setForm({ ...form, grade: v, gradeLevelUuid: gl?.uuid ?? "" });
+                      // Changing grade resets stream — the previous grade's stream name may not
+                      // exist (or may mean something different) under the newly selected grade.
+                      setForm({ ...form, grade: v, gradeLevelUuid: gl?.uuid ?? "", stream: "" });
                     }}>
                     <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
                     <SelectContent>{grades.map(g => <SelectItem key={g.uuid} value={g.name}>{g.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Stream</Label>
-                  <Select value={form.stream} onValueChange={v => setForm({ ...form, stream: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select stream" /></SelectTrigger>
-                    <SelectContent>{streams.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
+                {selectedGradeStreams.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Stream <span className="text-destructive">*</span></Label>
+                    <Select value={form.stream} onValueChange={v => setForm({ ...form, stream: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select stream" /></SelectTrigger>
+                      <SelectContent>{selectedGradeStreams.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Separator className="col-span-full" />
                 <div className="col-span-full"><p className="text-sm font-medium text-muted-foreground mb-4">Parent / Guardian Information</p></div>
                 <div className="space-y-2">
@@ -297,7 +307,7 @@ const AdmissionsPage = () => {
             {step < 4 ? (
               <Button onClick={() => {
                 if (step === 1 && (!form.firstName || !form.lastName || !form.gender || !form.dob)) { toast.error("Please fill in all required fields"); return; }
-                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone)) { toast.error("Please fill in all required fields"); return; }
+                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone || (selectedGradeStreams.length > 0 && !form.stream))) { toast.error("Please fill in all required fields"); return; }
                 setStep(step + 1);
               }}>Next</Button>
             ) : (

@@ -24,9 +24,43 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import {
-  GRADES, STREAMS, METHODS, ROLES, students, initialPayments,
-  generateRandomPayment, type Payment, type Student, type Role,
+  GRADES, STREAMS, METHODS, ROLES, type Payment, type Student, type Role,
 } from "@/data/feesMock";
+import { FeeApi, StudentApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
+
+const METHOD_FROM_BACKEND: Record<string, Payment["method"]> = {
+  MPESA: "M-Pesa",
+  BANK_TRANSFER: "Bank",
+  CASH: "Cash",
+  CHEQUE: "Cheque",
+  CARD: "Card",
+};
+
+const toPayment = (raw: any): Payment => ({
+  id: String(raw.id ?? raw.uuid),
+  studentId: raw.studentId,
+  amount: Number(raw.amount) || 0,
+  method: METHOD_FROM_BACKEND[raw.method] ?? "Cash",
+  reference: raw.reference,
+  date: raw.paymentDate,
+});
+
+const expectedForGrade = (grade: string, items: any[]) =>
+  items
+    .filter((it) => it.active && (!it.grade || it.grade === grade))
+    .reduce((a, it) => a + (Number(it.amount) || 0), 0);
+
+const toStudent = (raw: any, items: any[]): Student => ({
+  id: raw.admissionNumber,
+  admissionNo: raw.admissionNumber,
+  name: `${raw.firstName ?? ""} ${raw.lastName ?? ""}`.trim(),
+  grade: raw.grade ?? "",
+  stream: raw.stream ?? "",
+  parent: raw.parentName ?? "",
+  phone: raw.parentPhone ?? "",
+  expected: expectedForGrade(raw.grade, items),
+});
 
 const fmt = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 const fmtDT = (iso: string) =>
@@ -35,12 +69,36 @@ const fmtD = (iso: string) =>
   new Date(iso).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
 
 const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--success))", "hsl(var(--info))", "hsl(var(--destructive))", "hsl(var(--muted-foreground))"];
-const OUTSTANDING_THRESHOLD = 30000;
 
 const SchoolFeesPage = () => {
-  const [payments, setPayments] = useState<Payment[]>(initialPayments);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState(true);
   const [liveMode, setLiveMode] = useState(true);
   const [role, setRole] = useState<Role>("Administrator");
+
+  // Initial load from backend
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [rawStudents, rawItems, rawPayments] = await Promise.all([
+          StudentApi.getAll(),
+          FeeApi.getItems(),
+          FeeApi.getPayments(),
+        ]);
+        if (cancelled) return;
+        setStudents(rawStudents.map((s: any) => toStudent(s, rawItems)));
+        setPayments(rawPayments.map(toPayment));
+      } catch (err) {
+        toast.error("Failed to load fee data", { description: getBackendErrorMessage(err) });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -54,35 +112,42 @@ const SchoolFeesPage = () => {
   // Selected student profile
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
-  // Live payment simulator
+  // Live mode: poll the backend for newly recorded payments (M-Pesa/bank/manual)
   useEffect(() => {
     if (!liveMode) return;
-    const id = setInterval(() => {
-      const p = generateRandomPayment();
+    const id = setInterval(async () => {
+      let rawPayments: any[];
+      try {
+        rawPayments = await FeeApi.getPayments();
+      } catch {
+        return; // transient network/poll error — try again next tick
+      }
+      const mapped = rawPayments.map(toPayment);
       setPayments((prev) => {
-        const next = [p, ...prev];
-        const s = students.find((x) => x.id === p.studentId);
-        const paidNow = next.filter((x) => x.studentId === p.studentId).reduce((a, b) => a + b.amount, 0);
-        if (s) {
-          if (paidNow >= s.expected) {
-            toast.success(`${s.name} has cleared their balance`, {
-              description: `${s.admissionNo} • ${fmt(paidNow)} / ${fmt(s.expected)}`,
-            });
-          } else {
-            toast(`New payment: ${fmt(p.amount)}`, {
-              description: `${s.name} (${s.admissionNo}) • ${p.method} • ${p.reference}`,
-            });
+        const prevIds = new Set(prev.map((p) => p.id));
+        const newOnes = mapped.filter((p) => !prevIds.has(p.id));
+        newOnes.forEach((p) => {
+          const s = students.find((x) => x.id === p.studentId);
+          const paidNow = mapped
+            .filter((x) => x.studentId === p.studentId)
+            .reduce((a, b) => a + b.amount, 0);
+          if (s) {
+            if (paidNow >= s.expected) {
+              toast.success(`${s.name} has cleared their balance`, {
+                description: `${s.admissionNo} • ${fmt(paidNow)} / ${fmt(s.expected)}`,
+              });
+            } else {
+              toast(`New payment: ${fmt(p.amount)}`, {
+                description: `${s.name} (${s.admissionNo}) • ${p.method} • ${p.reference}`,
+              });
+            }
           }
-          const balance = s.expected - paidNow;
-          if (balance > OUTSTANDING_THRESHOLD) {
-            // suppress duplicate spam — only warn occasionally
-          }
-        }
-        return next;
+        });
+        return mapped;
       });
     }, 9000);
     return () => clearInterval(id);
-  }, [liveMode]);
+  }, [liveMode, students]);
 
   // Per-student aggregates
   const studentAgg = useMemo(() => {
@@ -355,6 +420,7 @@ const SchoolFeesPage = () => {
           <p className="text-muted-foreground">Real-time fee collection, balances and reporting</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {loading && <Badge variant="outline" className="gap-1 animate-pulse">Loading…</Badge>}
           <Badge variant={liveMode ? "default" : "outline"} className="gap-1">
             <Radio className={`w-3 h-3 ${liveMode ? "animate-pulse" : ""}`} />
             {liveMode ? "Live" : "Paused"}
@@ -382,7 +448,7 @@ const SchoolFeesPage = () => {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard title="Total Expected" value={fmt(totals.expected)} icon={DollarSign} iconColor="bg-primary/10 text-primary" />
-        <StatCard title="Total Collected" value={fmt(totals.collected)} icon={CheckCircle} iconColor="bg-success/10 text-success" change={`${((totals.collected/totals.expected)*100).toFixed(1)}% of expected`} changeType="positive" />
+        <StatCard title="Total Collected" value={fmt(totals.collected)} icon={CheckCircle} iconColor="bg-success/10 text-success" change={`${(totals.expected ? (totals.collected / totals.expected) * 100 : 0).toFixed(1)}% of expected`} changeType="positive" />
         <StatCard title="Outstanding" value={fmt(totals.outstanding)} icon={AlertTriangle} iconColor="bg-destructive/10 text-destructive" />
         <StatCard title="Fully Paid" value={`${totals.fullyPaid} / ${students.length}`} icon={Users} iconColor="bg-info/10 text-info" />
         <StatCard title="With Balance" value={totals.withBalance} icon={AlertTriangle} iconColor="bg-warning/10 text-warning" />
