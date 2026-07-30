@@ -7,6 +7,8 @@ import { Download, TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight
 import StatCard from "@/components/dashboard/StatCard";
 import { BarChart3, Users, Award, GraduationCap } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
+import { useState } from "react";
+import Pagination from "@/utils/Pagination";
 
 const gradeComparisonData = [
   { grade: "PP1", currentAvg: 78, prevTermAvg: 72, prevYearAvg: 68, students: 35, passRate: 91, prevPassRate: 85 },
@@ -47,10 +49,16 @@ const DiffBadge = ({ current, previous }: { current: number; previous: number })
 };
 
 const GradeComparisonPage = () => {
+  const [comparisonPage, setComparisonPage] = useState(1);
+  const [comparisonPerPage, setComparisonPerPage] = useState(10);
+
   const schoolCurrentAvg = Math.round(gradeComparisonData.reduce((a, b) => a + b.currentAvg, 0) / gradeComparisonData.length);
   const schoolPrevAvg = Math.round(gradeComparisonData.reduce((a, b) => a + b.prevTermAvg, 0) / gradeComparisonData.length);
   const totalStudents = gradeComparisonData.reduce((a, b) => a + b.students, 0);
   const improved = gradeComparisonData.filter((g) => g.currentAvg > g.prevTermAvg).length;
+
+  const totalComparisonPages = Math.ceil(gradeComparisonData.length / comparisonPerPage);
+  const pagedComparisonData = gradeComparisonData.slice((comparisonPage - 1) * comparisonPerPage, comparisonPage * comparisonPerPage);
 
   return (
     <div className="space-y-6">
@@ -179,7 +187,7 @@ const GradeComparisonPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {gradeComparisonData.map((g) => (
+              {pagedComparisonData.map((g) => (
                 <TableRow key={g.grade}>
                   <TableCell className="font-medium">{g.grade}</TableCell>
                   <TableCell className="text-center">{g.students}</TableCell>
@@ -195,6 +203,8 @@ const GradeComparisonPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={comparisonPage} totalPages={totalComparisonPages} onPageChange={setComparisonPage}
+            itemsPerPage={comparisonPerPage} onItemsPerPageChange={v => { setComparisonPerPage(v); setComparisonPage(1); }} />
         </CardContent>
       </Card>
     </div>

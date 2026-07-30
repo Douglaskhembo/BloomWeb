@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Search, Fingerprint, LogIn, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { StudentApi, AttendanceReportApi } from "@/services/api";
+import Pagination from "@/utils/Pagination";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null);
@@ -21,6 +22,8 @@ const ParentAttendance = () => {
   const [rows, setRows] = useState<any[]>([]);
   const [todayRows, setTodayRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendancePerPage, setAttendancePerPage] = useState(10);
 
   useEffect(() => {
     if (!user?.userUuid) return;
@@ -33,6 +36,7 @@ const ParentAttendance = () => {
     setLoading(true);
     try {
       setRows(await AttendanceReportApi.getMyChildren({ parentUserUuid: user.userUuid, from, to }));
+      setAttendancePage(1);
     } finally {
       setLoading(false);
     }
@@ -43,6 +47,8 @@ const ParentAttendance = () => {
     () => (selectedChild ? rows.filter((r) => r.ownerRef === selectedChild) : rows),
     [rows, selectedChild]
   );
+  const totalAttendancePages = Math.ceil(visibleRows.length / attendancePerPage);
+  const pagedRows = visibleRows.slice((attendancePage - 1) * attendancePerPage, attendancePage * attendancePerPage);
 
   const todayStatusFor = (admissionNumber: string) => {
     const entries = todayRows.filter((r) => r.ownerRef === admissionNumber);
@@ -117,9 +123,9 @@ const ParentAttendance = () => {
             <Button size="sm" onClick={search}><Search className="w-4 h-4 mr-1" /> Search</Button>
             {children.length > 1 && (
               <div className="flex gap-1 ml-auto">
-                <Button size="sm" variant={selectedChild === "" ? "default" : "outline"} onClick={() => setSelectedChild("")}>All</Button>
+                <Button size="sm" variant={selectedChild === "" ? "default" : "outline"} onClick={() => { setSelectedChild(""); setAttendancePage(1); }}>All</Button>
                 {children.map((c) => (
-                  <Button key={c.uuid} size="sm" variant={selectedChild === c.admissionNumber ? "default" : "outline"} onClick={() => setSelectedChild(c.admissionNumber)}>
+                  <Button key={c.uuid} size="sm" variant={selectedChild === c.admissionNumber ? "default" : "outline"} onClick={() => { setSelectedChild(c.admissionNumber); setAttendancePage(1); }}>
                     {c.firstName}
                   </Button>
                 ))}
@@ -130,16 +136,17 @@ const ParentAttendance = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow><TableHead>Student</TableHead><TableHead>Date</TableHead><TableHead>Entry</TableHead><TableHead>Exit</TableHead><TableHead>Status</TableHead></TableRow>
               </TableHeader>
               <TableBody>
-                {visibleRows.length === 0 ? (
+                {pagedRows.length === 0 ? (
                   <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">
                     <Fingerprint className="w-6 h-6 mx-auto mb-2 opacity-40" /> No attendance records for this range.
                   </TableCell></TableRow>
-                ) : visibleRows.map((r) => (
+                ) : pagedRows.map((r) => (
                   <TableRow key={r.uuid}>
                     <TableCell className="font-medium">{r.ownerName}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{r.attendanceDate}</TableCell>
@@ -150,6 +157,9 @@ const ParentAttendance = () => {
                 ))}
               </TableBody>
             </Table>
+            <Pagination currentPage={attendancePage} totalPages={totalAttendancePages} onPageChange={setAttendancePage}
+              itemsPerPage={attendancePerPage} onItemsPerPageChange={v => { setAttendancePerPage(v); setAttendancePage(1); }} />
+            </>
           )}
         </CardContent>
       </Card>

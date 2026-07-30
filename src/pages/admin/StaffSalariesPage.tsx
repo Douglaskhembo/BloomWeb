@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Search, Pencil, Wallet } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import { StaffApi } from "@/services/api";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { getStaffIdentifier } from "@/utils/staff";
@@ -14,6 +14,7 @@ import { DEFAULT_ALLOWANCES, calculatePayroll, formatKES, PayrollConfig } from "
 import { loadPayrollConfig } from "@/lib/payroll/loadConfig";
 import StaffSalaryModal from "@/components/modal/StaffSalaryModal";
 import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
+import Pagination from "@/utils/Pagination";
 
 const computeFor = (s: StaffSalary, config?: Partial<PayrollConfig>) => {
   const taxable = DEFAULT_ALLOWANCES.filter((a) => a.taxable && s.allowances[a.id]).reduce((sum, a) => sum + (s.allowances[a.id] || 0), 0);
@@ -23,7 +24,6 @@ const computeFor = (s: StaffSalary, config?: Partial<PayrollConfig>) => {
 };
 
 const StaffSalariesPage = () => {
-  const { toast } = useToast();
   const { getSalary, setSalary } = usePayroll();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -31,6 +31,8 @@ const StaffSalariesPage = () => {
   const [form, setForm] = useState<StaffSalary>({ basic: 0, allowances: {}, deductions: {} });
   const [initialStaff, setInitialStaff] = useState<any[]>([]);
   const [payrollConfig, setPayrollConfig] = useState<Partial<PayrollConfig>>({});
+  const [staffPage, setStaffPage] = useState(1);
+  const [staffPerPage, setStaffPerPage] = useState(10);
 
   useEffect(() => {
     StaffApi.getAll().then((data) => {
@@ -62,7 +64,7 @@ const StaffSalariesPage = () => {
   const handleSubmit = () => {
     if (!editingId) return;
     setSalary(editingId, form);
-    toast({ title: "Salary saved" });
+    Swal.fire({ title: "Salary saved", icon: "success", showConfirmButton: true });
     setOpen(false);
   };
 
@@ -79,6 +81,9 @@ const StaffSalariesPage = () => {
   );
 
   const editingStaff = initialStaff.find((s) => s.uuid === editingId);
+
+  const totalStaffPages = Math.ceil(staff.length / staffPerPage);
+  const pagedStaff = staff.slice((staffPage - 1) * staffPerPage, staffPage * staffPerPage);
 
   return (
     <div className="space-y-6">
@@ -106,7 +111,7 @@ const StaffSalariesPage = () => {
             </div>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search staff..." className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="Search staff..." className="pl-10" value={search} onChange={(e) => { setSearch(e.target.value); setStaffPage(1); }} />
             </div>
           </div>
         </CardHeader>
@@ -125,7 +130,7 @@ const StaffSalariesPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {staff.map((s) => {
+              {pagedStaff.map((s) => {
                 const sal = getSalary(s.uuid);
                 const result = computeFor(sal, payrollConfig);
                 const allowanceTotal = Object.values(sal.allowances).reduce((sum, v) => sum + (v || 0), 0);
@@ -149,6 +154,8 @@ const StaffSalariesPage = () => {
               })}
             </TableBody>
           </Table>
+          <Pagination currentPage={staffPage} totalPages={totalStaffPages} onPageChange={setStaffPage}
+            itemsPerPage={staffPerPage} onItemsPerPageChange={v => { setStaffPerPage(v); setStaffPage(1); }} />
         </CardContent>
       </Card>
 

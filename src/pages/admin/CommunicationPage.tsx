@@ -10,7 +10,7 @@ import StatCard from "@/components/dashboard/StatCard";
 import { CommunicationApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { GRADES } from "@/data/feesMock";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 
 const AUDIENCE_LABELS: Record<string, string> = {
   ALL_PARENTS: "All Parents",
@@ -47,7 +47,7 @@ const CommunicationPage = () => {
 
   const handleSend = async () => {
     if (!subject.trim() || !body.trim()) {
-      toast.error("Subject and message body are required");
+      Swal.fire({ icon: "error", title: "Error", text: "Subject and message body are required", showConfirmButton: true });
       return;
     }
     setSending(true);
@@ -61,10 +61,10 @@ const CommunicationPage = () => {
       });
       setSubject("");
       setBody("");
-      toast.success("Message sent");
+      Swal.fire({ title: "Success", text: "Message sent", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to send message"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to send message"), showConfirmButton: true });
     } finally {
       setSending(false);
     }

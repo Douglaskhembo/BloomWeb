@@ -9,15 +9,16 @@ interface Props {
   value: FeeItemFormValues;
   onChange: (v: FeeItemFormValues) => void;
   onSubmit: () => void;
+  gradeOptions: string[];
 }
 
-const FeeItemFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSubmit }: Props) => (
+const FeeItemFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSubmit, gradeOptions }: Props) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{isEditing ? "Edit Fee Item" : "Add Fee Item"}</DialogTitle>
       </DialogHeader>
-      <FeeItemForm value={value} onChange={onChange} />
+      <FeeItemForm value={value} onChange={onChange} gradeOptions={gradeOptions} />
       <DialogFooter>
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button onClick={onSubmit} disabled={!value.name || !value.amount}>{isEditing ? "Update" : "Add"} Fee Item</Button>

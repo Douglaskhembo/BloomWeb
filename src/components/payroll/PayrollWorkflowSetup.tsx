@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, UserCog } from "lucide-react";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { PayrollApi, UserApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { usePayroll, PayrollWorkflowStep as WorkflowStep, PayrollWorkflowStepUser as PersonRef, PayrollMaker as Maker } from "@/context/PayrollContext";
@@ -49,7 +49,7 @@ const PayrollWorkflowSetup = () => {
       setAllUsers(userRows.map((u: any) => ({ uuid: u.userUuid, userName: u.userName, firstName: u.firstName, otherNames: u.otherNames })));
       await Promise.all([refreshMakers(), refreshWorkflowSteps()]);
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to load approval workflow"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to load approval workflow"), showConfirmButton: true });
     }
   };
 
@@ -59,24 +59,27 @@ const PayrollWorkflowSetup = () => {
   const openAddMaker = () => { setMakerUuid(""); setMakerDialogOpen(true); };
 
   const saveMaker = async () => {
-    if (!makerUuid) { toast.error("Select a person"); return; }
+    if (!makerUuid) {
+      Swal.fire({ icon: "error", title: "Error", text: "Select a person", showConfirmButton: true });
+      return;
+    }
     try {
       await PayrollApi.addMaker(makerUuid);
-      toast.success("Maker added");
+      Swal.fire({ title: "Success", text: "Maker added", icon: "success", showConfirmButton: true });
       setMakerDialogOpen(false);
       refreshMakers();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to add maker"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to add maker"), showConfirmButton: true });
     }
   };
 
   const removeMaker = async (m: Maker) => {
     try {
       await PayrollApi.removeMaker(m.uuid);
-      toast.success("Maker removed");
+      Swal.fire({ title: "Success", text: "Maker removed", icon: "success", showConfirmButton: true });
       refreshMakers();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to remove maker"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to remove maker"), showConfirmButton: true });
     }
   };
 
@@ -110,14 +113,28 @@ const PayrollWorkflowSetup = () => {
   };
 
   const saveStep = async () => {
-    if (!stepForm.label.trim()) { toast.error("Give this step a name"); return; }
-    if (stepForm.assignedUuids.size === 0) { toast.error("Assign at least one approver to this step"); return; }
+    if (!stepForm.label.trim()) {
+      Swal.fire({ icon: "error", title: "Error", text: "Give this step a name", showConfirmButton: true });
+      return;
+    }
+    if (stepForm.assignedUuids.size === 0) {
+      Swal.fire({ icon: "error", title: "Error", text: "Assign at least one approver to this step", showConfirmButton: true });
+      return;
+    }
     let minApprovals: number | null = null;
     if (stepForm.approvalRule === "AT_LEAST") {
       minApprovals = Number(stepForm.minApprovals);
-      if (!minApprovals || minApprovals < 1) { toast.error("Enter how many approvers are required"); return; }
+      if (!minApprovals || minApprovals < 1) {
+        Swal.fire({ icon: "error", title: "Error", text: "Enter how many approvers are required", showConfirmButton: true });
+        return;
+      }
       if (minApprovals > stepForm.assignedUuids.size) {
-        toast.error(`"At least ${minApprovals}" can't exceed the ${stepForm.assignedUuids.size} people assigned`);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: `"At least ${minApprovals}" can't exceed the ${stepForm.assignedUuids.size} people assigned`,
+          showConfirmButton: true,
+        });
         return;
       }
     }
@@ -132,25 +149,25 @@ const PayrollWorkflowSetup = () => {
     try {
       if (editingStep) {
         await PayrollApi.updateWorkflowStep(editingStep.uuid, payload);
-        toast.success("Step updated");
+        Swal.fire({ title: "Success", text: "Step updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createWorkflowStep(payload);
-        toast.success("Step added");
+        Swal.fire({ title: "Success", text: "Step added", icon: "success", showConfirmButton: true });
       }
       setStepDialogOpen(false);
       refreshWorkflowSteps();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save step"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save step"), showConfirmButton: true });
     }
   };
 
   const removeStep = async (step: WorkflowStep) => {
     try {
       await PayrollApi.deleteWorkflowStep(step.uuid);
-      toast.success("Step removed");
+      Swal.fire({ title: "Success", text: "Step removed", icon: "success", showConfirmButton: true });
       refreshWorkflowSteps();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete step"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete step"), showConfirmButton: true });
     }
   };
 
@@ -163,7 +180,7 @@ const PayrollWorkflowSetup = () => {
       await PayrollApi.reorderWorkflowSteps(reordered.map((s) => s.uuid));
       refreshWorkflowSteps();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to reorder steps"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to reorder steps"), showConfirmButton: true });
     }
   };
 

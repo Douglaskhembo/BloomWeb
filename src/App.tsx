@@ -41,6 +41,7 @@ import LeaveTypesSetupPage from "./pages/admin/LeaveTypesSetupPage";
 import FeeStructureSetupPage from "./pages/admin/FeeStructureSetupPage";
 import SchoolSetupPage from "./pages/admin/SchoolSetupPage";
 import SubjectsSetupPage from "./pages/admin/SubjectsSetupPage";
+import StaffRolesSetupPage from "./pages/admin/StaffRolesSetupPage";
 import PayrollSetupPage from "./pages/admin/PayrollSetupPage";
 import GradingSetupPage from "./pages/admin/GradingSetupPage";
 import StaffSalariesPage from "./pages/admin/StaffSalariesPage";
@@ -117,6 +118,7 @@ function AppRoutes() {
         <Route path="setup-fee-structure" element={<FeeStructureSetupPage />} />
         <Route path="setup-school" element={<SchoolSetupPage />} />
         <Route path="setup-subjects" element={<SubjectsSetupPage />} />
+        <Route path="setup-staff-roles" element={<StaffRolesSetupPage />} />
         <Route path="setup-payroll" element={<PayrollSetupPage />} />
         <Route path="setup-grading" element={<GradingSetupPage />} />
         <Route path="setup-biometrics" element={<BiometricsSetupPage />} />

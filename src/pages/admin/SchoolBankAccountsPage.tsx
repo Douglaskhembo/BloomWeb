@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Landmark, CheckCircle2 } from "lucide-react";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { SchoolApi, PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface Bank { uuid: string; name: string; }
 interface BankAccount {
@@ -31,6 +32,8 @@ const SchoolBankAccountsPage = () => {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccount | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [accountsPage, setAccountsPage] = useState(1);
+  const [accountsPerPage, setAccountsPerPage] = useState(10);
 
   const load = async () => {
     try {
@@ -38,7 +41,7 @@ const SchoolBankAccountsPage = () => {
       setAccounts(accountRows);
       setBanks(bankRows.filter((b: any) => b.active));
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to load school bank accounts"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to load school bank accounts"), showConfirmButton: true });
     }
   };
 
@@ -52,31 +55,34 @@ const SchoolBankAccountsPage = () => {
   };
 
   const save = async () => {
-    if (!form.bankUuid || !form.accountNumber.trim()) { toast.error("Select a bank and enter an account number"); return; }
+    if (!form.bankUuid || !form.accountNumber.trim()) { Swal.fire({ icon: "error", title: "Error", text: "Select a bank and enter an account number", showConfirmButton: true }); return; }
     try {
       if (editing) {
         await SchoolApi.updateBankAccount(editing.uuid, form);
-        toast.success("Bank account updated");
+        Swal.fire({ title: "Success", text: "Bank account updated", icon: "success", showConfirmButton: true });
       } else {
         await SchoolApi.createBankAccount(form);
-        toast.success("Bank account added");
+        Swal.fire({ title: "Success", text: "Bank account added", icon: "success", showConfirmButton: true });
       }
       setOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save bank account"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save bank account"), showConfirmButton: true });
     }
   };
 
   const remove = async (a: BankAccount) => {
-    try { await SchoolApi.deleteBankAccount(a.uuid); toast.success("Bank account removed"); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete bank account")); }
+    try { await SchoolApi.deleteBankAccount(a.uuid); Swal.fire({ title: "Success", text: "Bank account removed", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete bank account"), showConfirmButton: true }); }
   };
 
   const useForPayroll = async (a: BankAccount) => {
-    try { await SchoolApi.setBankAccountUseForPayroll(a.uuid); toast.success(`${a.bank.name} set as the payroll debit account`); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to update payroll debit account")); }
+    try { await SchoolApi.setBankAccountUseForPayroll(a.uuid); Swal.fire({ title: "Success", text: `${a.bank.name} set as the payroll debit account`, icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update payroll debit account"), showConfirmButton: true }); }
   };
+
+  const totalAccountPages = Math.ceil(accounts.length / accountsPerPage);
+  const pagedAccounts = accounts.slice((accountsPage - 1) * accountsPerPage, accountsPage * accountsPerPage);
 
   return (
     <Card>
@@ -103,9 +109,9 @@ const SchoolBankAccountsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {accounts.length === 0 ? (
+            {pagedAccounts.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No bank accounts configured yet</TableCell></TableRow>
-            ) : accounts.map((a) => (
+            ) : pagedAccounts.map((a) => (
               <TableRow key={a.uuid}>
                 <TableCell className="font-medium">{a.bank?.name ?? "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{a.accountNumber}</TableCell>
@@ -128,6 +134,8 @@ const SchoolBankAccountsPage = () => {
             ))}
           </TableBody>
         </Table>
+        <Pagination currentPage={accountsPage} totalPages={totalAccountPages} onPageChange={setAccountsPage}
+          itemsPerPage={accountsPerPage} onItemsPerPageChange={v => { setAccountsPerPage(v); setAccountsPage(1); }} />
       </CardContent>
 
       <Dialog open={open} onOpenChange={setOpen}>

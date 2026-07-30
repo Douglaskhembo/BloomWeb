@@ -11,10 +11,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import {
   Download, Search, Activity, Users, AlertTriangle, CheckCircle, DollarSign,
   Calendar, TrendingUp, FileText, FileSpreadsheet, Printer, Radio, Bell, Eye,
+  Plus, ShieldCheck, XCircle, Clock,
 } from "lucide-react";
 import { ArrowLeft, Wallet, CalendarDays, School } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { Textarea } from "@/components/ui/textarea";
+import Swal from "sweetalert2";
 import StatCard from "@/components/dashboard/StatCard";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -24,43 +26,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import {
-  GRADES, STREAMS, METHODS, ROLES, type Payment, type Student, type Role,
+  GRADES, STREAMS, METHODS, ROLES, type Payment, type Student, type Role, type PaymentMethod,
 } from "@/data/feesMock";
 import { FeeApi, StudentApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/context/AuthContext";
+import { METHOD_TO_BACKEND, toPayment, toStudent, computeStudentAgg } from "@/utils/feePayment";
 
-const METHOD_FROM_BACKEND: Record<string, Payment["method"]> = {
-  MPESA: "M-Pesa",
-  BANK_TRANSFER: "Bank",
-  CASH: "Cash",
-  CHEQUE: "Cheque",
-  CARD: "Card",
-};
-
-const toPayment = (raw: any): Payment => ({
-  id: String(raw.id ?? raw.uuid),
-  studentId: raw.studentId,
-  amount: Number(raw.amount) || 0,
-  method: METHOD_FROM_BACKEND[raw.method] ?? "Cash",
-  reference: raw.reference,
-  date: raw.paymentDate,
-});
-
-const expectedForGrade = (grade: string, items: any[]) =>
-  items
-    .filter((it) => it.active && (!it.grade || it.grade === grade))
-    .reduce((a, it) => a + (Number(it.amount) || 0), 0);
-
-const toStudent = (raw: any, items: any[]): Student => ({
-  id: raw.admissionNumber,
-  admissionNo: raw.admissionNumber,
-  name: `${raw.firstName ?? ""} ${raw.lastName ?? ""}`.trim(),
-  grade: raw.grade ?? "",
-  stream: raw.stream ?? "",
-  parent: raw.parentName ?? "",
-  phone: raw.parentPhone ?? "",
-  expected: expectedForGrade(raw.grade, items),
-});
+// Methods a real-world walk-in payer could hand over in person, or that staff might need to
+// backfill if the live M-Pesa/bank integration is temporarily down.
+const MANUAL_METHODS: PaymentMethod[] = ["Cash", "Cheque", "Bank", "Card", "M-Pesa"];
 
 const fmt = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 const fmtDT = (iso: string) =>
@@ -71,11 +46,114 @@ const fmtD = (iso: string) =>
 const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--success))", "hsl(var(--info))", "hsl(var(--destructive))", "hsl(var(--muted-foreground))"];
 
 const SchoolFeesPage = () => {
+  const { user } = useAuth();
+  const verifierName = user?.userName || user?.firstName || "Finance Officer";
+
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveMode, setLiveMode] = useState(true);
   const [role, setRole] = useState<Role>("Administrator");
+  const canAct = role !== "Auditor";
+
+  // Manual payment capture (cash / cheque / bank-slip walk-ins, or a fallback when the live
+  // M-Pesa/bank integration is down)
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [rpQuery, setRpQuery] = useState("");
+  const [rpStudent, setRpStudent] = useState<Student | null>(null);
+  const [rpMethod, setRpMethod] = useState<PaymentMethod>("Cash");
+  const [rpAmount, setRpAmount] = useState("");
+  const [rpReference, setRpReference] = useState("");
+  const [rpBankName, setRpBankName] = useState("");
+  const [rpNotes, setRpNotes] = useState("");
+  const [rpDate, setRpDate] = useState(() => new Date().toISOString().slice(0, 16));
+  const [rpSubmitting, setRpSubmitting] = useState(false);
+
+  function resetRecordForm() {
+    setRpQuery(""); setRpStudent(null); setRpMethod("Cash"); setRpAmount(""); setRpReference("");
+    setRpBankName(""); setRpNotes(""); setRpDate(new Date().toISOString().slice(0, 16));
+  }
+
+  async function submitManualPayment() {
+    if (!rpStudent) { Swal.fire({ icon: "error", title: "Error", text: "Select a student", showConfirmButton: true }); return; }
+    const amt = Number(rpAmount);
+    if (!amt || amt <= 0) { Swal.fire({ icon: "error", title: "Error", text: "Enter a valid amount", showConfirmButton: true }); return; }
+    if (!rpReference.trim()) { Swal.fire({ icon: "error", title: "Error", text: "Receipt / reference number is required", showConfirmButton: true }); return; }
+    const isBankLike = rpMethod === "Cheque" || rpMethod === "Bank";
+    setRpSubmitting(true);
+    try {
+      const saved = await FeeApi.recordPayment({
+        studentId: rpStudent.id,
+        studentName: rpStudent.name,
+        grade: rpStudent.grade,
+        stream: rpStudent.stream,
+        amount: amt,
+        expectedAmount: rpStudent.expected,
+        method: METHOD_TO_BACKEND[rpMethod],
+        reference: rpReference.trim(),
+        paymentDate: new Date(rpDate).toISOString(),
+        bankName: isBankLike ? rpBankName.trim() || undefined : undefined,
+        slipOrChequeNumber: isBankLike ? rpReference.trim() : undefined,
+        notes: rpNotes.trim() || undefined,
+      });
+      const mapped = toPayment(saved);
+      setPayments((prev) => [mapped, ...prev]);
+      if (mapped.verificationStatus === "Pending Verification") {
+        Swal.fire({
+          title: "Success",
+          text: `Payment recorded — pending verification — ${rpStudent.name} • ${fmt(amt)} • won't count toward balance until confirmed`,
+          icon: "success",
+          showConfirmButton: true,
+        });
+        refreshPendingVerification();
+      } else {
+        Swal.fire({ title: "Success", text: `Payment recorded — ${rpStudent.name} • ${fmt(amt)}`, icon: "success", showConfirmButton: true });
+      }
+      setRecordOpen(false);
+      resetRecordForm();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Error", text: `Failed to record payment — ${getBackendErrorMessage(err)}`, showConfirmButton: true });
+    } finally {
+      setRpSubmitting(false);
+    }
+  }
+
+  // Pending verification queue (maker-checker for manual cheque / bank-slip / integration-fallback entries)
+  const [pendingVerification, setPendingVerification] = useState<Payment[]>([]);
+  const [rejectFor, setRejectFor] = useState<Payment | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  async function refreshPendingVerification() {
+    const raw = await FeeApi.getPendingVerification();
+    setPendingVerification(raw.map(toPayment));
+  }
+
+  useEffect(() => { refreshPendingVerification(); }, []);
+
+  async function handleVerify(p: Payment) {
+    try {
+      await FeeApi.verifyPayment(Number(p.id), verifierName);
+      Swal.fire({ title: "Success", text: `Payment verified — ${fmt(p.amount)} confirmed and now counts toward the balance`, icon: "success", showConfirmButton: true });
+      setPendingVerification((prev) => prev.filter((x) => x.id !== p.id));
+      setPayments((prev) => prev.map((x) => (x.id === p.id ? { ...x, verificationStatus: "Confirmed" } : x)));
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Error", text: `Failed to verify payment — ${getBackendErrorMessage(err)}`, showConfirmButton: true });
+    }
+  }
+
+  async function confirmReject() {
+    if (!rejectFor) return;
+    if (!rejectReason.trim()) { Swal.fire({ icon: "error", title: "Error", text: "Rejection reason is required", showConfirmButton: true }); return; }
+    try {
+      await FeeApi.rejectPayment(Number(rejectFor.id), verifierName, rejectReason.trim());
+      Swal.fire({ title: "Success", text: "Payment rejected", icon: "success", showConfirmButton: true });
+      setPendingVerification((prev) => prev.filter((x) => x.id !== rejectFor.id));
+      setPayments((prev) => prev.map((x) => (x.id === rejectFor.id ? { ...x, verificationStatus: "Rejected", rejectionReason: rejectReason.trim() } : x)));
+      setRejectFor(null); setRejectReason("");
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Error", text: `Failed to reject payment — ${getBackendErrorMessage(err)}`, showConfirmButton: true });
+    }
+  }
 
   // Initial load from backend
   useEffect(() => {
@@ -92,7 +170,7 @@ const SchoolFeesPage = () => {
         setStudents(rawStudents.map((s: any) => toStudent(s, rawItems)));
         setPayments(rawPayments.map(toPayment));
       } catch (err) {
-        toast.error("Failed to load fee data", { description: getBackendErrorMessage(err) });
+        Swal.fire({ icon: "error", title: "Error", text: `Failed to load fee data — ${getBackendErrorMessage(err)}`, showConfirmButton: true });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -133,12 +211,18 @@ const SchoolFeesPage = () => {
             .reduce((a, b) => a + b.amount, 0);
           if (s) {
             if (paidNow >= s.expected) {
-              toast.success(`${s.name} has cleared their balance`, {
-                description: `${s.admissionNo} • ${fmt(paidNow)} / ${fmt(s.expected)}`,
+              Swal.fire({
+                title: "Success",
+                text: `${s.name} has cleared their balance — ${s.admissionNo} • ${fmt(paidNow)} / ${fmt(s.expected)}`,
+                icon: "success",
+                showConfirmButton: true,
               });
             } else {
-              toast(`New payment: ${fmt(p.amount)}`, {
-                description: `${s.name} (${s.admissionNo}) • ${p.method} • ${p.reference}`,
+              Swal.fire({
+                icon: "info",
+                title: `New payment: ${fmt(p.amount)}`,
+                text: `${s.name} (${s.admissionNo}) • ${p.method} • ${p.reference}`,
+                showConfirmButton: true,
               });
             }
           }
@@ -149,23 +233,18 @@ const SchoolFeesPage = () => {
     return () => clearInterval(id);
   }, [liveMode, students]);
 
+  // Only CONFIRMED payments count toward balances/collections — a manual cheque or bank-slip entry
+  // sitting in Pending Verification hasn't cleared yet and shouldn't understate what a student still owes.
+  const confirmedPayments = useMemo(
+    () => payments.filter((p) => (p.verificationStatus ?? "Confirmed") === "Confirmed"),
+    [payments],
+  );
+
   // Per-student aggregates
-  const studentAgg = useMemo(() => {
-    const map = new Map<string, { paid: number; lastDate?: string }>();
-    payments.forEach((p) => {
-      const cur = map.get(p.studentId) ?? { paid: 0 };
-      cur.paid += p.amount;
-      if (!cur.lastDate || p.date > cur.lastDate) cur.lastDate = p.date;
-      map.set(p.studentId, cur);
-    });
-    return students.map((s) => {
-      const a = map.get(s.id) ?? { paid: 0 };
-      const paid = Math.min(a.paid, s.expected);
-      const balance = Math.max(0, s.expected - paid);
-      const st = paid === 0 ? "Unpaid" : balance === 0 ? "Cleared" : "Partial";
-      return { ...s, paid, balance, status: st as "Cleared" | "Partial" | "Unpaid", lastDate: a.lastDate };
-    });
-  }, [payments]);
+  const studentAgg = useMemo(
+    () => computeStudentAgg(students, confirmedPayments),
+    [confirmedPayments, students],
+  );
 
   // High-level metrics
   const totals = useMemo(() => {
@@ -176,10 +255,10 @@ const SchoolFeesPage = () => {
     const withBalance = studentAgg.filter((s) => s.balance > 0).length;
     const today = new Date().toDateString();
     const monthKey = new Date().toISOString().slice(0, 7);
-    const todayTotal = payments.filter((p) => new Date(p.date).toDateString() === today).reduce((a, b) => a + b.amount, 0);
-    const monthTotal = payments.filter((p) => p.date.slice(0, 7) === monthKey).reduce((a, b) => a + b.amount, 0);
+    const todayTotal = confirmedPayments.filter((p) => new Date(p.date).toDateString() === today).reduce((a, b) => a + b.amount, 0);
+    const monthTotal = confirmedPayments.filter((p) => p.date.slice(0, 7) === monthKey).reduce((a, b) => a + b.amount, 0);
     return { expected, collected, outstanding, fullyPaid, withBalance, todayTotal, monthTotal };
-  }, [studentAgg, payments]);
+  }, [studentAgg, confirmedPayments, students]);
 
   // Apply filters to payments (live table)
   const filteredPayments = useMemo(() => {
@@ -229,22 +308,22 @@ const SchoolFeesPage = () => {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86400000);
       const key = d.toDateString();
-      const amount = payments.filter((p) => new Date(p.date).toDateString() === key).reduce((a, b) => a + b.amount, 0);
+      const amount = confirmedPayments.filter((p) => new Date(p.date).toDateString() === key).reduce((a, b) => a + b.amount, 0);
       out.push({ date: d.toLocaleDateString("en-KE", { month: "short", day: "2-digit" }), amount });
     }
     return out;
-  }, [payments]);
+  }, [confirmedPayments]);
 
   const monthlyData = useMemo(() => {
     const map = new Map<string, number>();
-    payments.forEach((p) => {
+    confirmedPayments.forEach((p) => {
       const k = p.date.slice(0, 7);
       map.set(k, (map.get(k) ?? 0) + p.amount);
     });
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => ({ month: k, amount: v }));
-  }, [payments]);
+  }, [confirmedPayments]);
 
   const outstandingByGrade = useMemo(() => {
     const map = new Map<string, number>();
@@ -260,9 +339,9 @@ const SchoolFeesPage = () => {
 
   const methodBreakdown = useMemo(() => {
     const map = new Map<string, number>();
-    payments.forEach((p) => map.set(p.method, (map.get(p.method) ?? 0) + p.amount));
+    confirmedPayments.forEach((p) => map.set(p.method, (map.get(p.method) ?? 0) + p.amount));
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, [payments]);
+  }, [confirmedPayments]);
 
   // Exports
   function exportStudentsPDF(title: string, rows: typeof studentAgg) {
@@ -384,7 +463,7 @@ const SchoolFeesPage = () => {
 
   function runDownload() {
     if (!dlType) {
-      toast.error("Please select a report format");
+      Swal.fire({ icon: "error", title: "Error", text: "Please select a report format", showConfirmButton: true });
       return;
     }
     let rows = reportData;
@@ -407,7 +486,7 @@ const SchoolFeesPage = () => {
     if (dlType === "pdf") exportStudentsPDF(title, rows);
     else if (dlType === "excel") exportStudentsExcel(title, rows);
     else exportStudentsCSV(title, rows);
-    toast.success(`Downloaded ${rows.length} record(s)`);
+    Swal.fire({ title: "Success", text: `Downloaded ${rows.length} record(s)`, icon: "success", showConfirmButton: true });
     setDownloadOpen(false);
   }
 
@@ -434,6 +513,11 @@ const SchoolFeesPage = () => {
               {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
             </SelectContent>
           </Select>
+          {canAct && (
+            <Button size="sm" onClick={() => setRecordOpen(true)}>
+              <Plus className="w-4 h-4 mr-1" /> Record Payment
+            </Button>
+          )}
         </div>
       </div>
 
@@ -463,6 +547,12 @@ const SchoolFeesPage = () => {
       <Tabs defaultValue="live">
         <TabsList className="flex-wrap">
           <TabsTrigger value="live"><Radio className="w-4 h-4 mr-1" /> Live Payments</TabsTrigger>
+          <TabsTrigger value="verification">
+            <ShieldCheck className="w-4 h-4 mr-1" /> Pending Verification
+            {pendingVerification.length > 0 && (
+              <Badge variant="destructive" className="ml-1.5 text-[10px] px-1.5">{pendingVerification.length}</Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="students"><Users className="w-4 h-4 mr-1" /> Students</TabsTrigger>
           <TabsTrigger value="reports"><FileText className="w-4 h-4 mr-1" /> Reports</TabsTrigger>
           <TabsTrigger value="analytics"><TrendingUp className="w-4 h-4 mr-1" /> Analytics</TabsTrigger>
@@ -536,14 +626,16 @@ const SchoolFeesPage = () => {
                     <TableHead>Reference</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredPayments.slice(0, 50).map((p, i) => {
                     const s = studentAgg.find((x) => x.id === p.studentId);
                     if (!s) return null;
+                    const vStatus = p.verificationStatus ?? "Confirmed";
                     return (
-                      <TableRow key={p.id} className={i === 0 && liveMode ? "bg-success/5" : ""}>
+                      <TableRow key={p.id} className={i === 0 && liveMode ? "bg-success/5" : vStatus === "Pending Verification" ? "bg-warning/5" : ""}>
                         <TableCell className="text-xs whitespace-nowrap">{fmtDT(p.date)}</TableCell>
                         <TableCell className="font-mono text-xs">{s.admissionNo}</TableCell>
                         <TableCell className="font-medium">
@@ -553,13 +645,85 @@ const SchoolFeesPage = () => {
                         <TableCell className="text-xs">{s.stream}</TableCell>
                         <TableCell><Badge variant="secondary" className="text-[10px]">{p.method}</Badge></TableCell>
                         <TableCell className="font-mono text-xs">{p.reference}</TableCell>
-                        <TableCell className="text-right font-semibold text-success">{p.amount.toLocaleString()}</TableCell>
+                        <TableCell className={`text-right font-semibold ${vStatus === "Rejected" ? "text-muted-foreground line-through" : "text-success"}`}>{p.amount.toLocaleString()}</TableCell>
                         <TableCell className="text-right text-destructive">{s.balance.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={vStatus === "Confirmed" ? "default" : vStatus === "Rejected" ? "destructive" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {vStatus}
+                          </Badge>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
                   {filteredPayments.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No payments match the current filters.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No payments match the current filters.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* PENDING VERIFICATION — manual cheque / bank-slip / integration-fallback entries awaiting a second check */}
+        <TabsContent value="verification" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Pending Verification</CardTitle>
+              <CardDescription>
+                Manually captured cheque, bank-slip, or fallback entries that haven't been confirmed yet — these do not count toward a student's balance until verified. A matching bank-transfer webhook will auto-confirm the entry on its own if it arrives first.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Student</TableHead>
+                    <TableHead>Method</TableHead>
+                    <TableHead>Bank / Ref</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Recorded By</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingVerification.map((p) => {
+                    const s = students.find((x) => x.id === p.studentId);
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-xs whitespace-nowrap">{fmtDT(p.date)}</TableCell>
+                        <TableCell className="font-medium">{s ? `${s.name} (${s.admissionNo})` : p.studentId}</TableCell>
+                        <TableCell><Badge variant="secondary" className="text-[10px]">{p.method}</Badge></TableCell>
+                        <TableCell className="text-xs">
+                          {p.bankName && <div>{p.bankName}</div>}
+                          <div className="font-mono text-muted-foreground">{p.reference}</div>
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">{p.amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-xs">{p.recordedBy ?? "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{p.notes ?? "—"}</TableCell>
+                        <TableCell className="text-right">
+                          {canAct ? (
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="outline" onClick={() => handleVerify(p)}>
+                                <ShieldCheck className="w-4 h-4 mr-1 text-success" /> Verify
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setRejectFor(p)}>
+                                <XCircle className="w-4 h-4 mr-1 text-destructive" /> Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px]"><Clock className="w-3 h-3 mr-1" /> Awaiting review</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {pendingVerification.length === 0 && (
+                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nothing awaiting verification.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -920,6 +1084,137 @@ const SchoolFeesPage = () => {
             <Button variant="outline" onClick={() => setDownloadOpen(false)}>Cancel</Button>
             <Button onClick={runDownload} disabled={!dlType}>
               <Download className="w-4 h-4 mr-1" /> Download
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record manual payment — cash / cheque / bank-slip walk-ins, or an integration-down fallback */}
+      <Dialog open={recordOpen} onOpenChange={(o) => { setRecordOpen(o); if (!o) resetRecordForm(); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Record Manual Payment</DialogTitle>
+            <DialogDescription>
+              For cash handed in, a cheque, or a bank deposit slip — also use this if the M-Pesa/bank integration is down and a payment needs to be logged by hand. Cash and card are confirmed immediately; cheque, bank-slip and M-Pesa entries go to Pending Verification until checked.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Student <span className="text-destructive">*</span></Label>
+              {rpStudent ? (
+                <div className="flex items-center justify-between rounded-md border p-2">
+                  <div>
+                    <div className="font-medium text-sm">{rpStudent.name}</div>
+                    <div className="text-xs text-muted-foreground">{rpStudent.admissionNo} • {rpStudent.grade} {rpStudent.stream}</div>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setRpStudent(null)}>Change</Button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input autoFocus placeholder="Search name or admission no…" className="pl-9" value={rpQuery} onChange={(e) => setRpQuery(e.target.value)} />
+                  </div>
+                  {rpQuery.trim() && (() => {
+                    const q = rpQuery.trim().toLowerCase();
+                    const matches = students.filter((s) => `${s.name} ${s.admissionNo}`.toLowerCase().includes(q)).slice(0, 8);
+                    return (
+                      <div className="max-h-40 overflow-y-auto border rounded-md divide-y">
+                        {matches.map((s) => (
+                          <button
+                            key={s.id} type="button"
+                            className="w-full text-left p-2 text-sm hover:bg-muted"
+                            onClick={() => { setRpStudent(s); setRpQuery(""); }}
+                          >
+                            <div className="font-medium">{s.name}</div>
+                            <div className="text-xs text-muted-foreground">{s.admissionNo} • {s.grade} {s.stream}</div>
+                          </button>
+                        ))}
+                        {matches.length === 0 && <div className="p-2 text-xs text-muted-foreground">No matching students.</div>}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Payment Method <span className="text-destructive">*</span></Label>
+                <Select value={rpMethod} onValueChange={(v) => setRpMethod(v as PaymentMethod)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MANUAL_METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>{m === "Bank" ? "Bank Transfer / Slip" : m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Amount (KES) <span className="text-destructive">*</span></Label>
+                <Input type="number" min="0" value={rpAmount} onChange={(e) => setRpAmount(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  {rpMethod === "Cheque" ? "Cheque No." : rpMethod === "Bank" ? "Deposit Slip / Txn No." : "Receipt / Reference No."}
+                  <span className="text-destructive"> *</span>
+                </Label>
+                <Input value={rpReference} onChange={(e) => setRpReference(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Date</Label>
+                <Input type="datetime-local" value={rpDate} onChange={(e) => setRpDate(e.target.value)} />
+              </div>
+            </div>
+
+            {(rpMethod === "Cheque" || rpMethod === "Bank") && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Bank Name</Label>
+                <Input value={rpBankName} onChange={(e) => setRpBankName(e.target.value)} placeholder="e.g. Equity Bank" />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <Textarea rows={2} placeholder="Optional — e.g. received by, branch, teller name" value={rpNotes} onChange={(e) => setRpNotes(e.target.value)} />
+            </div>
+
+            {rpMethod !== "Cash" && rpMethod !== "Card" && (
+              <div className="rounded-md bg-warning/10 text-warning text-xs p-2 flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>This will be recorded as <b>Pending Verification</b> and won't count toward the student's balance until a finance officer confirms it against the bank/cheque.</span>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRecordOpen(false)}>Cancel</Button>
+            <Button onClick={submitManualPayment} disabled={rpSubmitting}>
+              <Plus className="w-4 h-4 mr-1" /> Record Payment
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject a pending manual payment */}
+      <Dialog open={!!rejectFor} onOpenChange={(o) => { if (!o) { setRejectFor(null); setRejectReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Payment</DialogTitle>
+            <DialogDescription>
+              {rejectFor && `${fmt(rejectFor.amount)} • ${rejectFor.method} • ${rejectFor.reference}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 py-2">
+            <Label className="text-xs">Reason <span className="text-destructive">*</span></Label>
+            <Textarea rows={3} placeholder="e.g. cheque bounced, slip doesn't match bank statement" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setRejectFor(null); setRejectReason(""); }}>Cancel</Button>
+            <Button variant="destructive" disabled={!rejectReason.trim()} onClick={confirmReject}>
+              <XCircle className="w-4 h-4 mr-1" /> Reject
             </Button>
           </div>
         </DialogContent>

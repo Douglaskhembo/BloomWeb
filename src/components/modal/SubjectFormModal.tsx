@@ -9,15 +9,16 @@ interface Props {
   value: SubjectFormValues;
   onChange: (v: SubjectFormValues) => void;
   onSubmit: () => void;
+  gradeOptions: string[];
 }
 
-const SubjectFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSubmit }: Props) => (
+const SubjectFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSubmit, gradeOptions }: Props) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{isEditing ? "Edit Subject" : "Add Subject"}</DialogTitle>
       </DialogHeader>
-      <SubjectForm value={value} onChange={onChange} />
+      <SubjectForm value={value} onChange={onChange} gradeOptions={gradeOptions} />
       <DialogFooter>
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
         <Button onClick={onSubmit} disabled={!value.name || !value.code}>{isEditing ? "Update" : "Add"} Subject</Button>

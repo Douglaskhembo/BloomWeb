@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import type { TaxBracket, StatutoryDeduction, AllowanceType, OtherDeduction } from "@/types/payroll";
 import PayeBandModal from "@/components/modal/PayeBandModal";
 import StatutoryDeductionModal from "@/components/modal/StatutoryDeductionModal";
@@ -19,6 +19,7 @@ import OtherDeductionModal from "@/components/modal/OtherDeductionModal";
 import PayrollWorkflowSetup from "@/components/payroll/PayrollWorkflowSetup";
 import { PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface PayrollSettings {
   personalRelief: number;
@@ -69,6 +70,15 @@ const PayrollSetupPage = () => {
   const [settings, setSettings] = useState<PayrollSettings>(emptySettings);
   const [loading, setLoading] = useState(false);
 
+  const [bandsPage, setBandsPage] = useState(1);
+  const [bandsPerPage, setBandsPerPage] = useState(10);
+  const [statutoryPage, setStatutoryPage] = useState(1);
+  const [statutoryPerPage, setStatutoryPerPage] = useState(10);
+  const [allowancesPage, setAllowancesPage] = useState(1);
+  const [allowancesPerPage, setAllowancesPerPage] = useState(10);
+  const [deductionsPage, setDeductionsPage] = useState(1);
+  const [deductionsPerPage, setDeductionsPerPage] = useState(10);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -107,25 +117,25 @@ const PayrollSetupPage = () => {
       const payload = { minAmount: data.minAmount, maxAmount: data.maxAmount, rate: data.rate, displayOrder: Math.round(data.minAmount) };
       if (editingBand) {
         await PayrollApi.updatePayeBand(editingBand.id, payload);
-        toast.success("Band updated");
+        Swal.fire({ title: "Success", text: "Band updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createPayeBand(payload);
-        toast.success("Band added");
+        Swal.fire({ title: "Success", text: "Band added", icon: "success", showConfirmButton: true });
       }
       setBandOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save PAYE band"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save PAYE band"), showConfirmButton: true });
     }
   };
 
   const deleteBand = async (id: number) => {
     try {
       await PayrollApi.deletePayeBand(id);
-      toast.success("Band removed");
+      Swal.fire({ title: "Success", text: "Band removed", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete PAYE band"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete PAYE band"), showConfirmButton: true });
     }
   };
 
@@ -134,15 +144,15 @@ const PayrollSetupPage = () => {
       const payload = { name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], defaultValue: data.defaultValue, taxable: data.taxable };
       if (editingAl) {
         await PayrollApi.updateAllowanceType(editingAl.id, payload);
-        toast.success("Allowance updated");
+        Swal.fire({ title: "Success", text: "Allowance updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createAllowanceType(payload);
-        toast.success("Allowance added");
+        Swal.fire({ title: "Success", text: "Allowance added", icon: "success", showConfirmButton: true });
       }
       setAlOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save allowance"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save allowance"), showConfirmButton: true });
     }
   };
 
@@ -151,17 +161,17 @@ const PayrollSetupPage = () => {
       await PayrollApi.toggleAllowanceType(id);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to update allowance"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update allowance"), showConfirmButton: true });
     }
   };
 
   const deleteAllowance = async (id: number) => {
     try {
       await PayrollApi.deleteAllowanceType(id);
-      toast.success("Deleted");
+      Swal.fire({ title: "Success", text: "Deleted", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete allowance"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete allowance"), showConfirmButton: true });
     }
   };
 
@@ -170,15 +180,15 @@ const PayrollSetupPage = () => {
       const payload = { name: data.name, type: VALUE_TYPE_TO_BACKEND[data.type], defaultValue: data.defaultValue, mandatory: data.mandatory };
       if (editingDed) {
         await PayrollApi.updateOtherDeduction(editingDed.id, payload);
-        toast.success("Deduction updated");
+        Swal.fire({ title: "Success", text: "Deduction updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createOtherDeduction(payload);
-        toast.success("Deduction added");
+        Swal.fire({ title: "Success", text: "Deduction added", icon: "success", showConfirmButton: true });
       }
       setDedOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save deduction"), showConfirmButton: true });
     }
   };
 
@@ -187,17 +197,17 @@ const PayrollSetupPage = () => {
       await PayrollApi.toggleOtherDeduction(id);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to update deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update deduction"), showConfirmButton: true });
     }
   };
 
   const deleteDeduction = async (id: number) => {
     try {
       await PayrollApi.deleteOtherDeduction(id);
-      toast.success("Deleted");
+      Swal.fire({ title: "Success", text: "Deleted", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete deduction"), showConfirmButton: true });
     }
   };
 
@@ -210,15 +220,15 @@ const PayrollSetupPage = () => {
       };
       if (editingStat) {
         await PayrollApi.updateStatutoryDeduction(editingStat.id, payload);
-        toast.success("Deduction updated");
+        Swal.fire({ title: "Success", text: "Deduction updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createStatutoryDeduction(payload);
-        toast.success("Deduction added");
+        Swal.fire({ title: "Success", text: "Deduction added", icon: "success", showConfirmButton: true });
       }
       setStatOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save statutory deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save statutory deduction"), showConfirmButton: true });
     }
   };
 
@@ -227,29 +237,38 @@ const PayrollSetupPage = () => {
       await PayrollApi.toggleStatutoryDeduction(id);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to update statutory deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update statutory deduction"), showConfirmButton: true });
     }
   };
 
   const deleteStatutory = async (id: number) => {
     try {
       await PayrollApi.deleteStatutoryDeduction(id);
-      toast.success("Deleted");
+      Swal.fire({ title: "Success", text: "Deleted", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete statutory deduction"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete statutory deduction"), showConfirmButton: true });
     }
   };
 
   const saveSettings = async () => {
     try {
       await PayrollApi.saveSettings(settings);
-      toast.success("Payroll settings saved");
+      Swal.fire({ title: "Success", text: "Payroll settings saved", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save settings"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save settings"), showConfirmButton: true });
     }
   };
+
+  const totalBandsPages = Math.ceil(taxBrackets.length / bandsPerPage);
+  const pagedBands = taxBrackets.slice((bandsPage - 1) * bandsPerPage, bandsPage * bandsPerPage);
+  const totalStatutoryPages = Math.ceil(statutory.length / statutoryPerPage);
+  const pagedStatutory = statutory.slice((statutoryPage - 1) * statutoryPerPage, statutoryPage * statutoryPerPage);
+  const totalAllowancesPages = Math.ceil(allowances.length / allowancesPerPage);
+  const pagedAllowances = allowances.slice((allowancesPage - 1) * allowancesPerPage, allowancesPage * allowancesPerPage);
+  const totalDeductionsPages = Math.ceil(otherDeductions.length / deductionsPerPage);
+  const pagedDeductions = otherDeductions.slice((deductionsPage - 1) * deductionsPerPage, deductionsPage * deductionsPerPage);
 
   return (
     <div className="space-y-6">
@@ -299,9 +318,9 @@ const PayrollSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {taxBrackets.map((b, i) => (
+                  {pagedBands.map((b, i) => (
                     <TableRow key={b.id}>
-                      <TableCell className="font-medium">Band {i + 1}</TableCell>
+                      <TableCell className="font-medium">Band {(bandsPage - 1) * bandsPerPage + i + 1}</TableCell>
                       <TableCell className="text-right">{b.minAmount.toLocaleString()}</TableCell>
                       <TableCell className="text-right">{b.maxAmount ? b.maxAmount.toLocaleString() : "Above"}</TableCell>
                       <TableCell className="text-right font-semibold">{b.rate}%</TableCell>
@@ -315,6 +334,8 @@ const PayrollSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={bandsPage} totalPages={totalBandsPages} onPageChange={setBandsPage}
+                itemsPerPage={bandsPerPage} onItemsPerPageChange={v => { setBandsPerPage(v); setBandsPage(1); }} />
               <p className="text-xs text-muted-foreground mt-3">* These rates are applied progressively on taxable income after personal relief deduction.</p>
             </CardContent>
           </Card>
@@ -345,7 +366,7 @@ const PayrollSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {statutory.map((s) => (
+                  {pagedStatutory.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
                       <TableCell><Badge variant="secondary" className="text-[10px]">{s.category === "nssf" ? "NSSF" : s.category === "housing_levy" ? "Housing Levy" : s.category === "shif" ? "SHIF" : "Other"}</Badge></TableCell>
@@ -366,6 +387,8 @@ const PayrollSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={statutoryPage} totalPages={totalStatutoryPages} onPageChange={setStatutoryPage}
+                itemsPerPage={statutoryPerPage} onItemsPerPageChange={v => { setStatutoryPerPage(v); setStatutoryPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -393,7 +416,7 @@ const PayrollSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {allowances.map((a) => (
+                  {pagedAllowances.map((a) => (
                     <TableRow key={a.id}>
                       <TableCell className="font-medium">{a.name}</TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{a.type === "fixed" ? "Fixed" : "%"}</Badge></TableCell>
@@ -412,6 +435,8 @@ const PayrollSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={allowancesPage} totalPages={totalAllowancesPages} onPageChange={setAllowancesPage}
+                itemsPerPage={allowancesPerPage} onItemsPerPageChange={v => { setAllowancesPerPage(v); setAllowancesPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -439,7 +464,7 @@ const PayrollSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {otherDeductions.map((d) => (
+                  {pagedDeductions.map((d) => (
                     <TableRow key={d.id}>
                       <TableCell className="font-medium">{d.name}</TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{d.type === "fixed" ? "Fixed" : "%"}</Badge></TableCell>
@@ -458,6 +483,8 @@ const PayrollSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={deductionsPage} totalPages={totalDeductionsPages} onPageChange={setDeductionsPage}
+                itemsPerPage={deductionsPerPage} onItemsPerPageChange={v => { setDeductionsPerPage(v); setDeductionsPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>

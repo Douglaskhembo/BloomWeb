@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { BookOpen, Users, ArrowLeft, Save } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 interface GradeEntry {
   label: string;
@@ -91,7 +92,6 @@ const initialClasses: ClassData[] = [
 const terms = ["Term 1", "Term 2", "Term 3"];
 
 const TeacherClasses = () => {
-  const { toast } = useToast();
   const [classes, setClasses] = useState<ClassData[]>(initialClasses);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
   const [mode, setMode] = useState<"list" | "view" | "scores">("list");
@@ -152,7 +152,7 @@ const TeacherClasses = () => {
           : cls
       )
     );
-    toast({ title: "Scores saved", description: `${scoreType === "exam" ? "Exam" : "CAT"} scores for ${selectedClass.grade} — ${selectedTerm} saved.` });
+    Swal.fire({ icon: "success", title: "Scores saved", text: `${scoreType === "exam" ? "Exam" : "CAT"} scores for ${selectedClass.grade} — ${selectedTerm} saved.`, showConfirmButton: true });
     setMode("list");
   };
 
@@ -312,48 +312,57 @@ const TeacherClasses = () => {
 };
 
 // Sub-component: View students table with grade info
-const StudentViewTable = ({ students, term, type }: { students: Student[]; term: string; type: "exam" | "cat" }) => (
-  <Card>
-    <CardContent className="pt-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">#</TableHead>
-            <TableHead>Adm No</TableHead>
-            <TableHead>Student Name</TableHead>
-            <TableHead className="text-right">Score</TableHead>
-            <TableHead className="text-center">Grade</TableHead>
-            <TableHead className="text-center">Points</TableHead>
-            <TableHead>Remark</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {students.map((s, i) => {
-            const score = s.scores[type][term] || "";
-            const gradeInfo = getGradeInfo(score);
-            return (
-              <TableRow key={s.id}>
-                <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
-                <TableCell className="font-mono text-xs">{s.admNo}</TableCell>
-                <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                <TableCell className="text-right">
-                  {score ? (
-                    <Badge variant={parseFloat(score) >= 50 ? "default" : "destructive"} className="text-[10px]">{score}%</Badge>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
-                <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </CardContent>
-  </Card>
-);
+const StudentViewTable = ({ students, term, type }: { students: Student[]; term: string; type: "exam" | "cat" }) => {
+  const [studentsPage, setStudentsPage] = useState(1);
+  const [studentsPerPage, setStudentsPerPage] = useState(10);
+  const totalStudentPages = Math.ceil(students.length / studentsPerPage);
+  const pagedStudents = students.slice((studentsPage - 1) * studentsPerPage, studentsPage * studentsPerPage);
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12">#</TableHead>
+              <TableHead>Adm No</TableHead>
+              <TableHead>Student Name</TableHead>
+              <TableHead className="text-right">Score</TableHead>
+              <TableHead className="text-center">Grade</TableHead>
+              <TableHead className="text-center">Points</TableHead>
+              <TableHead>Remark</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pagedStudents.map((s, i) => {
+              const score = s.scores[type][term] || "";
+              const gradeInfo = getGradeInfo(score);
+              return (
+                <TableRow key={s.id}>
+                  <TableCell className="text-muted-foreground text-xs">{(studentsPage - 1) * studentsPerPage + i + 1}</TableCell>
+                  <TableCell className="font-mono text-xs">{s.admNo}</TableCell>
+                  <TableCell className="font-medium text-sm">{s.name}</TableCell>
+                  <TableCell className="text-right">
+                    {score ? (
+                      <Badge variant={parseFloat(score) >= 50 ? "default" : "destructive"} className="text-[10px]">{score}%</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
+                  <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+        <Pagination currentPage={studentsPage} totalPages={totalStudentPages} onPageChange={setStudentsPage}
+          itemsPerPage={studentsPerPage} onItemsPerPageChange={v => { setStudentsPerPage(v); setStudentsPage(1); }} />
+      </CardContent>
+    </Card>
+  );
+};
 
 // Sub-component: Score entry table with auto grade/points/remark
 const ScoreEntryTable = ({ students, scores, setScores }: { students: Student[]; scores: Record<string, string>; setScores: React.Dispatch<React.SetStateAction<Record<string, string>>> }) => (

@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import StatCard from "@/components/dashboard/StatCard";
 import PayrollWorkflowStatus from "@/components/payroll/PayrollWorkflowStatus";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import { StaffApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { getStaffIdentifier } from "@/utils/staff";
@@ -23,6 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 import { usePayroll, StaffSalary } from "@/context/PayrollContext";
 import { PayrollApi } from "@/services/api";
 import { formatKES } from "@/lib/payroll/kenya";
+import Pagination from "@/utils/Pagination";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -34,7 +35,6 @@ const formatDate = (iso?: string) =>
 const PayrollRunDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { user } = useAuth();
   const {
     getSalary, payrollHistory, workflowSteps, makers, refreshRuns,
@@ -49,6 +49,8 @@ const PayrollRunDetailPage = () => {
   const [busy, setBusy] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<Record<string, any>>({});
   const [payrollAccount, setPayrollAccount] = useState<{ accountNumber: string; bankUuid: string | null } | null>(null);
+  const [txPage, setTxPage] = useState(1);
+  const [txPerPage, setTxPerPage] = useState(10);
 
   const permissions = user?.permissions ?? [];
   const canSendToBank = permissions.includes("PAYROLL_SEND_TO_BANK");
@@ -144,6 +146,8 @@ const PayrollRunDetailPage = () => {
         return hay.includes(q);
       })
     : displayRows;
+  const totalTxPages = Math.ceil(filteredRows.length / txPerPage);
+  const pagedRows = filteredRows.slice((txPage - 1) * txPerPage, txPage * txPerPage);
 
   const monthLabel = selectedRun?.monthLabel ?? "";
 
@@ -152,9 +156,9 @@ const PayrollRunDetailPage = () => {
     setBusy(true);
     try {
       await submitRun(selectedRun.id);
-      toast({ title: "Submitted for authorization", description: `${selectedRun.monthLabel} payroll is now awaiting authorization.` });
+      Swal.fire({ title: "Submitted for authorization", text: `${selectedRun.monthLabel} payroll is now awaiting authorization.`, icon: "success", showConfirmButton: true });
     } catch (err) {
-      toast({ title: "Could not submit", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not submit", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setBusy(false);
     }
@@ -165,9 +169,9 @@ const PayrollRunDetailPage = () => {
     setBusy(true);
     try {
       await approveRun(selectedRun.id);
-      toast({ title: "Step approved", description: `Your authorization on "${currentStep?.label}" has been recorded.` });
+      Swal.fire({ title: "Step approved", text: `Your authorization on "${currentStep?.label}" has been recorded.`, icon: "success", showConfirmButton: true });
     } catch (err) {
-      toast({ title: "Could not approve", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not approve", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setBusy(false);
     }
@@ -180,9 +184,9 @@ const PayrollRunDetailPage = () => {
       await rejectRun(selectedRun.id, rejectReason.trim());
       setRejectDialogOpen(false);
       setRejectReason("");
-      toast({ title: "Payroll rejected", description: "The maker can revise and resubmit." });
+      Swal.fire({ title: "Payroll rejected", text: "The maker can revise and resubmit.", icon: "success", showConfirmButton: true });
     } catch (err) {
-      toast({ title: "Could not reject", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not reject", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setBusy(false);
     }
@@ -193,10 +197,10 @@ const PayrollRunDetailPage = () => {
     setBusy(true);
     try {
       const run = await generateRun(selectedRun.year, selectedRun.monthIndex, selectedRun.monthLabel);
-      toast({ title: "Payroll regenerated", description: "A fresh draft has been created — review and submit it when ready." });
+      Swal.fire({ title: "Payroll regenerated", text: "A fresh draft has been created — review and submit it when ready.", icon: "success", showConfirmButton: true });
       navigate(`/admin/payroll/runs/${run.id}`);
     } catch (err) {
-      toast({ title: "Could not regenerate payroll", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not regenerate payroll", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setBusy(false);
     }
@@ -207,9 +211,9 @@ const PayrollRunDetailPage = () => {
     setBusy(true);
     try {
       await markSentToBank(selectedRun.id);
-      toast({ title: "Marked as sent to bank", description: "Staff in this run are now recorded as paid." });
+      Swal.fire({ title: "Marked as sent to bank", text: "Staff in this run are now recorded as paid.", icon: "success", showConfirmButton: true });
     } catch (err) {
-      toast({ title: "Could not update", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not update", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setBusy(false);
     }
@@ -276,7 +280,7 @@ const PayrollRunDetailPage = () => {
 
   const exportCSV = (bank = false) => {
     const data = bank ? buildBankExportRows() : buildExportRows();
-    if (!data.length) return toast({ title: "Nothing to export" });
+    if (!data.length) { Swal.fire({ icon: "info", title: "Nothing to export", showConfirmButton: true }); return; }
     const headers = Object.keys(data[0]);
     const csv = [
       headers.join(","),
@@ -289,7 +293,7 @@ const PayrollRunDetailPage = () => {
     a.download = `Payroll${bank ? "-Bank" : ""}-${fileTag()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: "CSV exported" });
+    Swal.fire({ icon: "info", title: "CSV exported", showConfirmButton: true });
   };
 
   /** Force specific columns to Excel's native Text cell format ("@") so account/code numbers that
@@ -313,7 +317,7 @@ const PayrollRunDetailPage = () => {
 
   const exportExcel = (bank = false) => {
     const data = bank ? buildBankExportRows() : buildExportRows();
-    if (!data.length) return toast({ title: "Nothing to export" });
+    if (!data.length) { Swal.fire({ icon: "info", title: "Nothing to export", showConfirmButton: true }); return; }
     const headers = Object.keys(data[0]);
     const ws = XLSX.utils.json_to_sheet(data);
     forceTextColumns(ws, headers, bank
@@ -322,12 +326,12 @@ const PayrollRunDetailPage = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Payroll");
     XLSX.writeFile(wb, `Payroll${bank ? "-Bank" : ""}-${fileTag()}.xlsx`);
-    toast({ title: "Excel exported" });
+    Swal.fire({ icon: "info", title: "Excel exported", showConfirmButton: true });
   };
 
   const exportPDF = (bank = false) => {
     const data = bank ? buildBankExportRows() : buildExportRows();
-    if (!data.length) return toast({ title: "Nothing to export" });
+    if (!data.length) { Swal.fire({ icon: "info", title: "Nothing to export", showConfirmButton: true }); return; }
     const doc = new jsPDF({ orientation: "landscape" });
     doc.setFontSize(14);
     doc.text(`Payroll — ${monthLabel}${bank ? " (Bank Submission)" : ""}`, 14, 14);
@@ -346,7 +350,7 @@ const PayrollRunDetailPage = () => {
       headStyles: { fillColor: [30, 41, 59] },
     });
     doc.save(`Payroll${bank ? "-Bank" : ""}-${fileTag()}.pdf`);
-    toast({ title: "PDF exported" });
+    Swal.fire({ icon: "info", title: "PDF exported", showConfirmButton: true });
   };
 
   const isMaker = selectedRun ? selectedRun.makerUuid === user?.userUuid : false;
@@ -470,7 +474,7 @@ const PayrollRunDetailPage = () => {
                 <Input
                   placeholder="Search staff by name, ID..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setTxPage(1); }}
                   className="pl-8 w-[220px]"
                 />
               </div>
@@ -495,14 +499,14 @@ const PayrollRunDetailPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRows.length === 0 && (
+                {pagedRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={12} className="text-center text-sm text-muted-foreground py-8">
                       No staff match "{search}"
                     </TableCell>
                   </TableRow>
                 )}
-                {filteredRows.map(({ staff, line, isPaid, prorationNote }) => {
+                {pagedRows.map(({ staff, line, isPaid, prorationNote }) => {
                   const allow = line.taxableAllowances + line.nonTaxableAllowances;
                   return (
                     <TableRow key={staff.uuid} className="cursor-pointer hover:bg-muted/50" onClick={() => setViewingStaffUuid(staff.uuid)}>
@@ -532,6 +536,8 @@ const PayrollRunDetailPage = () => {
                 })}
               </TableBody>
             </Table>
+            <Pagination currentPage={txPage} totalPages={totalTxPages} onPageChange={setTxPage}
+              itemsPerPage={txPerPage} onItemsPerPageChange={v => { setTxPerPage(v); setTxPage(1); }} />
           </CardContent>
         </Card>
 

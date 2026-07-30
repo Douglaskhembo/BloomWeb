@@ -11,7 +11,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Search, Download, Filter, Eye, ArrowLeft, Trash2, Save, Pencil } from "lucide-react";
 import { useStudentContext, Student } from "@/context/StudentContext";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 const statusOptions = ["ACTIVE", "SUSPENDED", "DISABLED", "GRADUATED"];
 const statusLabels: Record<string, string> = { ACTIVE: "Active", SUSPENDED: "Suspended", DISABLED: "Disabled", GRADUATED: "Graduated" };
@@ -29,10 +31,14 @@ const StudentsPage = () => {
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [studentsPage, setStudentsPage] = useState(1);
+  const [studentsPerPage, setStudentsPerPage] = useState(10);
 
   const filtered = students.filter(s =>
     `${s.firstName} ${s.lastName} ${s.admissionNumber}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const totalStudentsPages = Math.ceil(filtered.length / studentsPerPage);
+  const pagedStudents = filtered.slice((studentsPage - 1) * studentsPerPage, studentsPage * studentsPerPage);
 
   const handleOpenStudent = (student: Student) => {
     setSelectedStudent(student);
@@ -47,9 +53,9 @@ const StudentsPage = () => {
       await updateStudent(editData.uuid, editData);
       setSelectedStudent(editData);
       setIsEditing(false);
-      toast.success("Student updated successfully");
+      Swal.fire({ title: "Success", text: "Student updated successfully", icon: "success", showConfirmButton: true });
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Failed to update student");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update student"), showConfirmButton: true });
     } finally {
       setSaving(false);
     }
@@ -59,12 +65,12 @@ const StudentsPage = () => {
     if (!selectedStudent) return;
     try {
       await deleteStudent(selectedStudent.uuid);
-      toast.success("Student deleted successfully");
+      Swal.fire({ title: "Success", text: "Student deleted successfully", icon: "success", showConfirmButton: true });
       setSelectedStudent(null);
       setEditData(null);
       setShowDeleteConfirm(false);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Failed to delete student");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete student"), showConfirmButton: true });
     }
   };
 
@@ -76,9 +82,9 @@ const StudentsPage = () => {
       setSelectedStudent(updated);
       setEditData(updated);
       setShowStatusDialog(false);
-      toast.success(`Status changed to ${statusLabels[newStatus] ?? newStatus}`);
+      Swal.fire({ title: "Success", text: `Status changed to ${statusLabels[newStatus] ?? newStatus}`, icon: "success", showConfirmButton: true });
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Failed to update status");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update status"), showConfirmButton: true });
     }
   };
 
@@ -129,6 +135,10 @@ const StudentsPage = () => {
                 <div>
                   <Label className="text-muted-foreground text-xs">Date of Birth</Label>
                   {isEditing ? <Input type="date" value={editData.dateOfBirth} onChange={e => setEditData({ ...editData, dateOfBirth: e.target.value })} /> : <p className="font-medium mt-1">{selectedStudent.dateOfBirth}</p>}
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Birth Certificate No.</Label>
+                  {isEditing ? <Input value={editData.birthCertificateNumber ?? ""} onChange={e => setEditData({ ...editData, birthCertificateNumber: e.target.value })} /> : <p className="font-medium mt-1">{selectedStudent.birthCertificateNumber || "—"}</p>}
                 </div>
                 <div>
                   <Label className="text-muted-foreground text-xs">Gender</Label>
@@ -243,7 +253,7 @@ const StudentsPage = () => {
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search by name, admission number..." className="pl-10" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              <Input placeholder="Search by name, admission number..." className="pl-10" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setStudentsPage(1); }} />
             </div>
             <Button variant="outline" size="sm"><Filter className="w-4 h-4 mr-1" /> Filters</Button>
           </div>
@@ -266,9 +276,9 @@ const StudentsPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.length === 0 ? (
+                {pagedStudents.length === 0 ? (
                   <TableRow><TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">No students found</TableCell></TableRow>
-                ) : filtered.map(student => (
+                ) : pagedStudents.map(student => (
                   <TableRow key={student.id}>
                     <TableCell className="font-mono text-xs">{student.admissionNumber}</TableCell>
                     <TableCell className="font-medium">{student.firstName} {student.lastName}</TableCell>
@@ -288,6 +298,10 @@ const StudentsPage = () => {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {!loadingStudents && (
+            <Pagination currentPage={studentsPage} totalPages={totalStudentsPages} onPageChange={setStudentsPage}
+              itemsPerPage={studentsPerPage} onItemsPerPageChange={v => { setStudentsPerPage(v); setStudentsPage(1); }} />
           )}
         </CardContent>
       </Card>

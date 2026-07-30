@@ -11,9 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, ArrowLeft, Landmark, Smartphone, Tags } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface Bank { id: number; uuid: string; name: string; bankCode?: string; swiftCode?: string; active: boolean; }
 interface Provider { id: number; uuid: string; name: string; shortCode?: string; active: boolean; }
@@ -24,6 +25,12 @@ const BanksSetupPage = () => {
   const navigate = useNavigate();
   const [banks, setBanks] = useState<Bank[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [banksPage, setBanksPage] = useState(1);
+  const [banksPerPage, setBanksPerPage] = useState(10);
+  const [providersPage, setProvidersPage] = useState(1);
+  const [providersPerPage, setProvidersPerPage] = useState(10);
+  const [typesPage, setTypesPage] = useState(1);
+  const [typesPerPage, setTypesPerPage] = useState(10);
 
   const [bankOpen, setBankOpen] = useState(false);
   const [editingBank, setEditingBank] = useState<Bank | null>(null);
@@ -47,7 +54,7 @@ const BanksSetupPage = () => {
       setProviders(providerRows);
       setPaymentTypes(typeRows);
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to load banks & mobile money providers"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to load banks & mobile money providers"), showConfirmButton: true });
     }
   };
 
@@ -61,26 +68,26 @@ const BanksSetupPage = () => {
     try {
       if (editingBank) {
         await PayrollApi.updateBank(editingBank.id, bankForm);
-        toast.success("Bank updated");
+        Swal.fire({ title: "Success", text: "Bank updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createBank(bankForm);
-        toast.success("Bank added");
+        Swal.fire({ title: "Success", text: "Bank added", icon: "success", showConfirmButton: true });
       }
       setBankOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save bank"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save bank"), showConfirmButton: true });
     }
   };
 
   const toggleBank = async (b: Bank) => {
     try { await PayrollApi.toggleBank(b.id); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to update bank")); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update bank"), showConfirmButton: true }); }
   };
 
   const deleteBank = async (b: Bank) => {
-    try { await PayrollApi.deleteBank(b.id); toast.success("Bank deleted"); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete bank")); }
+    try { await PayrollApi.deleteBank(b.id); Swal.fire({ title: "Success", text: "Bank deleted", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete bank"), showConfirmButton: true }); }
   };
 
   const openAddProvider = () => { setEditingProvider(null); setProviderForm({ name: "", shortCode: "" }); setProviderOpen(true); };
@@ -91,26 +98,26 @@ const BanksSetupPage = () => {
     try {
       if (editingProvider) {
         await PayrollApi.updateMobileMoneyProvider(editingProvider.id, providerForm);
-        toast.success("Provider updated");
+        Swal.fire({ title: "Success", text: "Provider updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createMobileMoneyProvider(providerForm);
-        toast.success("Provider added");
+        Swal.fire({ title: "Success", text: "Provider added", icon: "success", showConfirmButton: true });
       }
       setProviderOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save provider"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save provider"), showConfirmButton: true });
     }
   };
 
   const toggleProvider = async (p: Provider) => {
     try { await PayrollApi.toggleMobileMoneyProvider(p.id); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to update provider")); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update provider"), showConfirmButton: true }); }
   };
 
   const deleteProvider = async (p: Provider) => {
-    try { await PayrollApi.deleteMobileMoneyProvider(p.id); toast.success("Provider deleted"); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete provider")); }
+    try { await PayrollApi.deleteMobileMoneyProvider(p.id); Swal.fire({ title: "Success", text: "Provider deleted", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete provider"), showConfirmButton: true }); }
   };
 
   const openAddType = () => { setEditingType(null); setTypeForm({ category: "BANK", code: "" }); setTypeOpen(true); };
@@ -121,27 +128,36 @@ const BanksSetupPage = () => {
     try {
       if (editingType) {
         await PayrollApi.updatePaymentType(editingType.id, typeForm);
-        toast.success("Payment type updated");
+        Swal.fire({ title: "Success", text: "Payment type updated", icon: "success", showConfirmButton: true });
       } else {
         await PayrollApi.createPaymentType(typeForm);
-        toast.success("Payment type added");
+        Swal.fire({ title: "Success", text: "Payment type added", icon: "success", showConfirmButton: true });
       }
       setTypeOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save payment type"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save payment type"), showConfirmButton: true });
     }
   };
 
   const toggleType = async (t: PaymentType) => {
     try { await PayrollApi.togglePaymentType(t.id); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to update payment type")); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update payment type"), showConfirmButton: true }); }
   };
 
   const deleteType = async (t: PaymentType) => {
-    try { await PayrollApi.deletePaymentType(t.id); toast.success("Payment type deleted"); load(); }
-    catch (err) { toast.error(getBackendErrorMessage(err, "Failed to delete payment type")); }
+    try { await PayrollApi.deletePaymentType(t.id); Swal.fire({ title: "Success", text: "Payment type deleted", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete payment type"), showConfirmButton: true }); }
   };
+
+  const totalBankPages = Math.ceil(banks.length / banksPerPage);
+  const pagedBanks = banks.slice((banksPage - 1) * banksPerPage, banksPage * banksPerPage);
+
+  const totalProviderPages = Math.ceil(providers.length / providersPerPage);
+  const pagedProviders = providers.slice((providersPage - 1) * providersPerPage, providersPage * providersPerPage);
+
+  const totalTypePages = Math.ceil(paymentTypes.length / typesPerPage);
+  const pagedTypes = paymentTypes.slice((typesPage - 1) * typesPerPage, typesPage * typesPerPage);
 
   return (
     <div className="space-y-6">
@@ -183,9 +199,9 @@ const BanksSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {banks.length === 0 ? (
+                  {pagedBanks.length === 0 ? (
                     <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No banks configured yet</TableCell></TableRow>
-                  ) : banks.map((b) => (
+                  ) : pagedBanks.map((b) => (
                     <TableRow key={b.uuid}>
                       <TableCell className="font-medium">{b.name}</TableCell>
                       <TableCell>{b.bankCode || "—"}</TableCell>
@@ -201,6 +217,8 @@ const BanksSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={banksPage} totalPages={totalBankPages} onPageChange={setBanksPage}
+                itemsPerPage={banksPerPage} onItemsPerPageChange={v => { setBanksPerPage(v); setBanksPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -225,9 +243,9 @@ const BanksSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {providers.length === 0 ? (
+                  {pagedProviders.length === 0 ? (
                     <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No providers configured yet</TableCell></TableRow>
-                  ) : providers.map((p) => (
+                  ) : pagedProviders.map((p) => (
                     <TableRow key={p.uuid}>
                       <TableCell className="font-medium">{p.name}</TableCell>
                       <TableCell>{p.shortCode || "—"}</TableCell>
@@ -242,6 +260,8 @@ const BanksSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={providersPage} totalPages={totalProviderPages} onPageChange={setProvidersPage}
+                itemsPerPage={providersPerPage} onItemsPerPageChange={v => { setProvidersPerPage(v); setProvidersPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -270,9 +290,9 @@ const BanksSetupPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paymentTypes.length === 0 ? (
+                  {pagedTypes.length === 0 ? (
                     <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No payment types configured yet</TableCell></TableRow>
-                  ) : paymentTypes.map((t) => (
+                  ) : pagedTypes.map((t) => (
                     <TableRow key={t.uuid}>
                       <TableCell><Badge variant="secondary" className="text-[10px]">{t.category === "BANK" ? "Bank" : "Mobile Wallet"}</Badge></TableCell>
                       <TableCell className="font-medium font-mono">{t.code}</TableCell>
@@ -287,6 +307,8 @@ const BanksSetupPage = () => {
                   ))}
                 </TableBody>
               </Table>
+              <Pagination currentPage={typesPage} totalPages={totalTypePages} onPageChange={setTypesPage}
+                itemsPerPage={typesPerPage} onItemsPerPageChange={v => { setTypesPerPage(v); setTypesPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>

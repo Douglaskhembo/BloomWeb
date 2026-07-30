@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Upload, X } from "lucide-react";
 import type { StaffMember } from "@/components/modal/StaffViewModal";
 
@@ -13,7 +14,7 @@ export const emptyStaff: StaffFormData = {
   firstName: "", lastName: "", gender: "", dateOfBirth: "", idNumber: "",
   phone: "", email: "", address: "", practiceNumber: "",
   staffType: "", employmentType: "", contractPeriodMonths: null,
-  subject: "", grade: "",
+  subjects: [], staffRole: "", grade: "",
   qualification: "", experience: "", joined: "", status: "ACTIVE",
   emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelationship: "",
   documents: [],
@@ -25,9 +26,11 @@ interface StaffFormProps {
   onSubmit: () => void;
   onCancel: () => void;
   isEditing: boolean;
+  subjectOptions: string[];
+  staffRoleOptions: string[];
 }
 
-const StaffForm = ({ value, onChange, onSubmit, onCancel, isEditing }: StaffFormProps) => {
+const StaffForm = ({ value, onChange, onSubmit, onCancel, isEditing, subjectOptions, staffRoleOptions }: StaffFormProps) => {
   const [formTab, setFormTab] = useState("personal");
   const [docName, setDocName] = useState("");
 
@@ -163,9 +166,31 @@ const StaffForm = ({ value, onChange, onSubmit, onCancel, isEditing }: StaffForm
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">
-            {renderField("Subject / Role", "subject")}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Staff Role</Label>
+              <Select value={value.staffRole} onValueChange={(v) => onChange({ ...value, staffRole: v })}>
+                <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  {staffRoleOptions.map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {value.staffType === "TEACHING" && renderField("Practice Number", "practiceNumber", "text", true)}
-            {renderField("Assigned Class", "grade")}
+            {value.staffType === "TEACHING" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Subjects Taught</Label>
+                <MultiSelect
+                  options={subjectOptions}
+                  selected={value.subjects}
+                  onChange={(subjects) => onChange({ ...value, subjects })}
+                  placeholder="Select subject(s)..."
+                  searchPlaceholder="Search subjects..."
+                  allLabel="All Subjects"
+                />
+              </div>
+            )}
             {renderField("Qualification", "qualification")}
           </div>
           <div className="grid grid-cols-2 gap-4">

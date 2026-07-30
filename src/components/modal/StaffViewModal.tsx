@@ -20,7 +20,8 @@ export interface StaffMember {
   staffType: string;
   employmentType: string;
   contractPeriodMonths?: number | null;
-  subject: string;
+  subjects: string[];
+  staffRole: string;
   grade: string;
   qualification: string;
   experience: string;
@@ -89,7 +90,10 @@ const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusC
               {staff.contractPeriodMonths != null && (
                 <div><span className="text-muted-foreground">Contract Period:</span> <span className="font-medium ml-1">{staff.contractPeriodMonths} months</span></div>
               )}
-              <div><span className="text-muted-foreground">Subject:</span> <span className="font-medium ml-1">{staff.subject || "—"}</span></div>
+              <div><span className="text-muted-foreground">Staff Role:</span> <span className="font-medium ml-1">{staff.staffRole || "—"}</span></div>
+              {staff.staffType === "TEACHING" && (
+                <div><span className="text-muted-foreground">Subjects:</span> <span className="font-medium ml-1">{staff.subjects.length > 0 ? staff.subjects.join(", ") : "—"}</span></div>
+              )}
               <div><span className="text-muted-foreground">Class:</span> <span className="font-medium ml-1">{staff.grade || "—"}</span></div>
               <div><span className="text-muted-foreground">Qualification:</span> <span className="font-medium ml-1">{staff.qualification || "—"}</span></div>
               <div><span className="text-muted-foreground">Experience:</span> <span className="font-medium ml-1">{staff.experience || "—"}</span></div>

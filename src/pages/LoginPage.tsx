@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Eye, EyeOff, School } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { authAPI } from '@/services/api';
-import { toast } from 'sonner';
+import Swal from 'sweetalert2';
 import { getBackendErrorMessage } from '@/utils/errorHandler';
 
 type Step = 'login' | 'reset-password' | 'forgot-password' | 'forgot-reset';
@@ -44,7 +44,12 @@ export default function LoginPage() {
         login(data);
       }
     } catch (err: any) {
-      toast.error(getBackendErrorMessage(err, 'Invalid credentials'));
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: getBackendErrorMessage(err, 'Invalid credentials'),
+        showConfirmButton: true,
+      });
     } finally {
       setLoading(false);
     }
@@ -52,14 +57,32 @@ export default function LoginPage() {
 
   const handleFirstLoginReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) { toast.error('Passwords do not match'); return; }
+    if (newPassword !== confirmPassword) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Passwords do not match',
+        showConfirmButton: true,
+      });
+      return;
+    }
     setLoading(true);
     try {
       await authAPI.resetPassword({ newPassword, confirmPassword }, pendingUser.token);
-      toast.success('Password updated. Logging you in...');
+      Swal.fire({
+        title: 'Success',
+        text: 'Password updated. Logging you in...',
+        icon: 'success',
+        showConfirmButton: true,
+      });
       login({ ...pendingUser, token: pendingUser.token, firstLogin: false });
     } catch (err: any) {
-      toast.error(getBackendErrorMessage(err, 'Failed to reset password'));
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: getBackendErrorMessage(err, 'Failed to reset password'),
+        showConfirmButton: true,
+      });
     } finally {
       setLoading(false);
     }
@@ -71,10 +94,19 @@ export default function LoginPage() {
     try {
       // BloomSchool uses admin reset — for self-service we just call reset-password with token from login
       // Here we trigger admin reset which logs the temp password server-side
-      toast.info('Contact your administrator to reset your password.');
+      Swal.fire({
+        icon: 'info',
+        title: 'Contact your administrator to reset your password.',
+        showConfirmButton: true,
+      });
       setStep('login');
     } catch (err: any) {
-      toast.error(getBackendErrorMessage(err, 'Failed'));
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: getBackendErrorMessage(err, 'Failed'),
+        showConfirmButton: true,
+      });
     } finally {
       setLoading(false);
     }
@@ -82,7 +114,7 @@ export default function LoginPage() {
 
   const pwInput = (label: string, val: string, set: (v: string) => void, show: boolean, toggle: () => void, placeholder = '••••••••') => (
     <div className="space-y-1">
-      <label className="block text-sm font-medium text-slate-700">{label}</label>
+      <label className="block text-sm font-medium text-foreground">{label}</label>
       <div className="relative">
         <input
           type={show ? 'text' : 'password'}
@@ -90,10 +122,10 @@ export default function LoginPage() {
           value={val}
           onChange={e => set(e.target.value)}
           placeholder={placeholder}
-          className="w-full border border-slate-300 rounded-lg px-3 py-2.5 pr-10 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-input rounded-lg px-3 py-2.5 pr-10 text-sm text-foreground bg-background focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <button type="button" onClick={toggle}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
@@ -101,20 +133,20 @@ export default function LoginPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-xl shadow-lg border border-slate-200 p-8 space-y-6">
+    <div className="min-h-screen bg-muted flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-card rounded-xl shadow-lg border border-border p-8 space-y-6">
 
         {/* Logo */}
         <div className="text-center space-y-1">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary mb-1">
             <School className="w-6 h-6 text-primary-foreground" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800">
+          <h1 className="text-xl font-bold text-foreground">
             {step === 'login' && 'Welcome Back'}
             {step === 'reset-password' && 'Set New Password'}
             {step === 'forgot-password' && 'Forgot Password'}
           </h1>
-          <p className="text-slate-500 text-xs">
+          <p className="text-muted-foreground text-xs">
             {step === 'login' && 'Sign in to your account'}
             {step === 'reset-password' && 'This is your first login. Please set a new password.'}
             {step === 'forgot-password' && 'Enter your username to reset your password'}
@@ -125,20 +157,20 @@ export default function LoginPage() {
         {step === 'login' && (
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-slate-700">Username</label>
+              <label className="block text-sm font-medium text-foreground">Username</label>
               <input
                 type="text" required value={username} onChange={e => setUsername(e.target.value)}
                 placeholder="Enter your username"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-input rounded-lg px-3 py-2.5 text-sm text-foreground bg-background focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             {pwInput('Password', password, setPassword, showPassword, () => setShowPassword(p => !p))}
             <button type="submit" disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
             <button type="button" onClick={() => setStep('forgot-password')}
-              className="w-full text-blue-600 hover:underline text-sm text-center">
+              className="w-full text-primary hover:underline text-sm text-center">
               Forgot password?
             </button>
           </form>
@@ -150,7 +182,7 @@ export default function LoginPage() {
             {pwInput('New Password', newPassword, setNewPassword, showNew, () => setShowNew(p => !p))}
             {pwInput('Confirm Password', confirmPassword, setConfirmPassword, showConfirm, () => setShowConfirm(p => !p))}
             <button type="submit" disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
               {loading ? 'Saving...' : 'Set Password & Continue'}
             </button>
           </form>
@@ -160,19 +192,19 @@ export default function LoginPage() {
         {step === 'forgot-password' && (
           <form onSubmit={handleForgotRequest} className="space-y-4">
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-slate-700">Username</label>
+              <label className="block text-sm font-medium text-foreground">Username</label>
               <input
                 type="text" required value={forgotUsername} onChange={e => setForgotUsername(e.target.value)}
                 placeholder="Enter your username"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-input rounded-lg px-3 py-2.5 text-sm text-foreground bg-background focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
             <button type="submit" disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-50">
               {loading ? 'Processing...' : 'Request Reset'}
             </button>
             <button type="button" onClick={() => setStep('login')}
-              className="w-full text-slate-500 hover:underline text-sm text-center">
+              className="w-full text-muted-foreground hover:underline text-sm text-center">
               Back to login
             </button>
           </form>

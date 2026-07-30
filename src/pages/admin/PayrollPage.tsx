@@ -7,11 +7,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Calculator, History, ChevronRight, RefreshCw } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { useAuth } from "@/context/AuthContext";
 import { usePayroll, PayrollRun, PayrollRunStatus, PayrollWorkflowStep } from "@/context/PayrollContext";
 import { formatKES } from "@/lib/payroll/kenya";
+import Pagination from "@/utils/Pagination";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -73,13 +74,14 @@ const authorizationSummary = (run: PayrollRun, workflowSteps: PayrollWorkflowSte
 };
 
 const PayrollPage = () => {
-  const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { payrollHistory, workflowSteps, makers, generateRun, refreshRuns } = usePayroll();
   const [statusTab, setStatusTab] = useState<PayrollRunStatus | "ALL">("ALL");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [runsPage, setRunsPage] = useState(1);
+  const [runsPerPage, setRunsPerPage] = useState(10);
 
   // Refetch every time this screen is navigated to, not just once at app boot.
   useEffect(() => { refreshRuns().catch(() => {}); }, [refreshRuns]);
@@ -89,7 +91,7 @@ const PayrollPage = () => {
     try {
       await refreshRuns();
     } catch (err) {
-      toast({ title: "Could not refresh", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not refresh", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setRefreshing(false);
     }
@@ -106,12 +108,14 @@ const PayrollPage = () => {
   );
 
   const filteredHistory = statusTab === "ALL" ? payrollHistory : payrollHistory.filter((r) => r.status === statusTab);
+  const totalRunsPages = Math.ceil(filteredHistory.length / runsPerPage);
+  const pagedHistory = filteredHistory.slice((runsPage - 1) * runsPerPage, runsPage * runsPerPage);
 
   const handleGenerate = async () => {
     setBusy(true);
     try {
       const run = await generateRun(now.getFullYear(), now.getMonth(), currentMonthLabel);
-      toast({ title: "Payroll draft generated", description: "Review it and submit for authorization when ready." });
+      Swal.fire({ title: "Payroll draft generated", text: "Review it and submit for authorization when ready.", icon: "success", showConfirmButton: true });
       navigate(`/admin/payroll/runs/${run.id}`);
     } catch (err) {
       const message = getBackendErrorMessage(err);
@@ -119,9 +123,9 @@ const PayrollPage = () => {
       // "Open ... run" button appears instead of a dead-end "Generate" button next time.
       if (message.toLowerCase().includes("already has an active run")) {
         await refreshRuns().catch(() => {});
-        toast({ title: "Payroll list was out of date", description: "Refreshed — the existing run for this month should now be visible below." });
+        Swal.fire({ icon: "info", title: "Payroll list was out of date", text: "Refreshed — the existing run for this month should now be visible below.", showConfirmButton: true });
       } else {
-        toast({ title: "Could not generate payroll", description: message, variant: "destructive" });
+        Swal.fire({ icon: "error", title: "Could not generate payroll", text: message, showConfirmButton: true });
       }
     } finally {
       setBusy(false);
@@ -156,7 +160,7 @@ const PayrollPage = () => {
         </div>
       </div>
 
-      <Tabs value={statusTab} onValueChange={(v) => setStatusTab(v as PayrollRunStatus | "ALL")}>
+      <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v as PayrollRunStatus | "ALL"); setRunsPage(1); }}>
         <TabsList>
           {TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
@@ -191,14 +195,14 @@ const PayrollPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredHistory.length === 0 && (
+              {pagedHistory.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
                     No payroll runs {statusTab !== "ALL" ? `in "${STATUS_LABEL[statusTab as PayrollRunStatus]}"` : "yet"} — generate one to get started.
                   </TableCell>
                 </TableRow>
               )}
-              {filteredHistory.map((run) => {
+              {pagedHistory.map((run) => {
                 const staffCount = Object.keys(run.lines).length;
                 const netTotal = Object.values(run.lines).reduce((sum, l) => sum + l.net, 0);
                 return (
@@ -220,6 +224,8 @@ const PayrollPage = () => {
               })}
             </TableBody>
           </Table>
+          <Pagination currentPage={runsPage} totalPages={totalRunsPages} onPageChange={setRunsPage}
+            itemsPerPage={runsPerPage} onItemsPerPageChange={v => { setRunsPerPage(v); setRunsPage(1); }} />
         </CardContent>
       </Card>
     </div>

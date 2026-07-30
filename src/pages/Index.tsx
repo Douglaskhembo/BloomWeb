@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { School, Eye, EyeOff } from "lucide-react";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 
 const demoAccounts = [
   { role: "admin", label: "School Admin", email: "admin@edumanager.com", password: "admin123", path: "/admin" },
@@ -23,15 +23,30 @@ const Index = () => {
     e.preventDefault();
     const account = demoAccounts.find((a) => a.email === email && a.password === password);
     if (account) {
-      toast.success(`Welcome! Logged in as ${account.label}`);
+      Swal.fire({
+        title: 'Success',
+        text: `Welcome! Logged in as ${account.label}`,
+        icon: 'success',
+        showConfirmButton: true,
+      });
       navigate(account.path);
     } else {
-      toast.error("Invalid credentials. Try a demo account below.");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Invalid credentials. Try a demo account below.",
+        showConfirmButton: true,
+      });
     }
   };
 
   const handleDemoLogin = (account: typeof demoAccounts[0]) => {
-    toast.success(`Welcome! Logged in as ${account.label}`);
+    Swal.fire({
+      title: 'Success',
+      text: `Welcome! Logged in as ${account.label}`,
+      icon: 'success',
+      showConfirmButton: true,
+    });
     navigate(account.path);
   };
 

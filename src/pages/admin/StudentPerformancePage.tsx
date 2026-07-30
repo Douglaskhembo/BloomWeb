@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Download, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { GraduationCap, Users, Award, BarChart3 } from "lucide-react";
+import Pagination from "@/utils/Pagination";
 
 const performanceData = [
   { name: "Brian Kamau", grade: "Grade 5", math: 85, english: 78, science: 92, kiswahili: 74, avg: 82, trend: "up" },
@@ -31,9 +33,15 @@ const scoreColor = (score: number) => {
 };
 
 const StudentPerformancePage = () => {
+  const [performancePage, setPerformancePage] = useState(1);
+  const [performancePerPage, setPerformancePerPage] = useState(10);
+
   const avgScore = Math.round(performanceData.reduce((a, b) => a + b.avg, 0) / performanceData.length);
   const topPerformers = performanceData.filter((s) => s.avg >= 80).length;
   const needsSupport = performanceData.filter((s) => s.avg < 60).length;
+
+  const totalPerformancePages = Math.ceil(performanceData.length / performancePerPage);
+  const pagedPerformance = performanceData.slice((performancePage - 1) * performancePerPage, performancePage * performancePerPage);
 
   return (
     <div className="space-y-6">
@@ -82,7 +90,7 @@ const StudentPerformancePage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {performanceData.map((s) => (
+              {pagedPerformance.map((s) => (
                 <TableRow key={s.name}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{s.grade}</Badge></TableCell>
@@ -96,6 +104,8 @@ const StudentPerformancePage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={performancePage} totalPages={totalPerformancePages} onPageChange={setPerformancePage}
+            itemsPerPage={performancePerPage} onItemsPerPageChange={v => { setPerformancePerPage(v); setPerformancePage(1); }} />
         </CardContent>
       </Card>
     </div>

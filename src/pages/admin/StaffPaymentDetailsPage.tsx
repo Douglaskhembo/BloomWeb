@@ -8,11 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Search, Pencil, CreditCard, Eye, Banknote, Smartphone } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import { StaffApi, PayrollApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { getStaffIdentifier } from "@/utils/staff";
 import PayrollNavTabs from "@/components/payroll/PayrollNavTabs";
+import Pagination from "@/utils/Pagination";
 
 type PaymentMethod = "BANK_TRANSFER" | "MOBILE_MONEY" | "CHEQUE";
 
@@ -49,7 +50,6 @@ const describe = (d: any, banks: any[], providers: any[]): string => {
 };
 
 const StaffPaymentDetailsPage = () => {
-  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [staff, setStaff] = useState<any[]>([]);
   const [details, setDetails] = useState<Record<string, any>>({});
@@ -62,6 +62,8 @@ const StaffPaymentDetailsPage = () => {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [viewingId, setViewingId] = useState<string | null>(null);
+  const [staffPage, setStaffPage] = useState(1);
+  const [staffPerPage, setStaffPerPage] = useState(10);
 
   const load = async () => {
     try {
@@ -86,7 +88,7 @@ const StaffPaymentDetailsPage = () => {
       const payrollAccount = (Array.isArray(accountRows) ? accountRows : []).find((a: any) => a.useForPayroll);
       setPayrollDebitBankUuid(payrollAccount?.bank?.uuid ?? null);
     } catch (err) {
-      toast({ title: "Failed to load", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to load", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -96,6 +98,9 @@ const StaffPaymentDetailsPage = () => {
     () => staff.filter((s) => `${s.firstName} ${s.lastName} ${getStaffIdentifier(s)}`.toLowerCase().includes(search.toLowerCase())),
     [staff, search],
   );
+
+  const totalStaffPages = Math.ceil(filtered.length / staffPerPage);
+  const pagedStaff = filtered.slice((staffPage - 1) * staffPerPage, staffPage * staffPerPage);
 
   const openEdit = (staffId: string) => {
     const existing = details[staffId];
@@ -130,11 +135,11 @@ const StaffPaymentDetailsPage = () => {
         mobileAccountName: form.paymentMethod === "MOBILE_MONEY" ? form.mobileAccountName : null,
         paymentTypeUuid: form.paymentMethod !== "CHEQUE" && !isWithinBank ? (form.paymentTypeUuid || null) : null,
       });
-      toast({ title: "Payment details saved" });
+      Swal.fire({ title: "Success", text: "Payment details saved", icon: "success", showConfirmButton: true });
       setOpen(false);
       load();
     } catch (err) {
-      toast({ title: "Could not save", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Could not save", text: getBackendErrorMessage(err), showConfirmButton: true });
     } finally {
       setSaving(false);
     }
@@ -171,7 +176,7 @@ const StaffPaymentDetailsPage = () => {
             </div>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search staff..." className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="Search staff..." className="pl-10" value={search} onChange={(e) => { setSearch(e.target.value); setStaffPage(1); }} />
             </div>
           </div>
         </CardHeader>
@@ -188,7 +193,7 @@ const StaffPaymentDetailsPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((s) => {
+              {pagedStaff.map((s) => {
                 const d = details[s.uuid];
                 return (
                   <TableRow key={s.uuid}>
@@ -215,6 +220,8 @@ const StaffPaymentDetailsPage = () => {
               })}
             </TableBody>
           </Table>
+          <Pagination currentPage={staffPage} totalPages={totalStaffPages} onPageChange={setStaffPage}
+            itemsPerPage={staffPerPage} onItemsPerPageChange={v => { setStaffPerPage(v); setStaffPage(1); }} />
         </CardContent>
       </Card>
 

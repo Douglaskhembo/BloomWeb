@@ -34,18 +34,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import FeeItemFormModal from "@/components/modal/FeeItemFormModal";
 import { FeeItemFormValues } from "@/components/forms/FeeItemForm";
-import { useToast } from "@/hooks/use-toast";
-import { GRADES } from "@/data/feesMock";
-import { FeeApi } from "@/services/api";
+import Swal from "sweetalert2";
+import { useAuth } from "@/context/AuthContext";
+import Pagination from "@/utils/Pagination";
+import { FeeApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-const emptyForm: FeeItemFormValues = { name: "", grade: "All Grades", amount: 0, term: "Per Term", active: true };
+const emptyForm: FeeItemFormValues = { name: "", grades: [], amount: 0, term: "Per Term", active: true };
+interface GradeLevelOption { uuid: string; name: string; active: boolean; }
+const toGradeLevelOption = (raw: any): GradeLevelOption => ({
+  uuid: raw.uuid,
+  name: raw.name,
+  active: raw.status === "ACTIVE",
+});
 const TERMS = ["Term 1", "Term 2", "Term 3"] as const;
 const WORKFLOW_TABS = ["maker", "approver", "approved"] as const;
-const ROLES = ["Maker", "Approver", "Administrator", "Auditor"] as const;
 
 type TermKey = (typeof TERMS)[number];
-type Role = (typeof ROLES)[number];
 type WorkflowTab = (typeof WORKFLOW_TABS)[number];
 type StructureStatus = "Draft" | "Pending Approval" | "Rejected" | "Approved";
 
@@ -66,11 +71,11 @@ interface FeeStructureRecord {
   status: StructureStatus;
   lines: GradeStatementLine[];
   baseline: GradeStatementLine[];
-  maker: Role;
+  maker: string;
   submittedAt: string;
   updatedAt: string;
   note?: string;
-  approver?: Role;
+  approver?: string;
   reviewedAt?: string;
   rejectionReason?: string;
 }
@@ -78,7 +83,7 @@ interface FeeStructureRecord {
 interface AuditEntry {
   id: string;
   at: string;
-  actor: Role;
+  actor: string;
   action: "Saved Draft" | "Submitted" | "Approved" | "Rejected" | "Reworked";
   academicYear?: number;
   grade: string;
@@ -110,7 +115,7 @@ const AUDIT_ACTION_FROM_BACKEND: Record<string, AuditEntry["action"]> = {
 const toFeeItem = (raw: any) => ({
   id: raw.id as number,
   name: raw.name as string,
-  grade: raw.grade ?? "All Grades",
+  grades: (raw.gradeLevels ?? []).map((g: any) => g.name) as string[],
   amount: raw.amount as number,
   term: raw.term ?? "Per Term",
   active: Boolean(raw.active),
@@ -125,7 +130,7 @@ const toStructureRecord = (raw: any): FeeStructureRecord => ({
   status: STATUS_FROM_BACKEND[raw.status] ?? "Draft",
   lines: raw.lines ?? [],
   baseline: raw.baseline ?? [],
-  maker: raw.maker as Role,
+  maker: raw.maker as string,
   submittedAt: raw.submittedAt,
   updatedAt: raw.updatedAt,
   note: raw.note ?? undefined,
@@ -137,7 +142,7 @@ const toStructureRecord = (raw: any): FeeStructureRecord => ({
 const toAuditEntry = (raw: any): AuditEntry => ({
   id: raw.uuid,
   at: raw.at,
-  actor: raw.actor as Role,
+  actor: raw.actor as string,
   action: AUDIT_ACTION_FROM_BACKEND[raw.action] ?? "Submitted",
   academicYear: raw.academicYear ?? undefined,
   grade: raw.grade,
@@ -147,17 +152,18 @@ const toAuditEntry = (raw: any): AuditEntry => ({
 
 const FeeStructureSetupPage = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const { user } = useAuth();
 
   const [feeItems, setFeeItems] = useState<ReturnType<typeof toFeeItem>[]>([]);
+  const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FeeItemFormValues>(emptyForm);
+  const gradeOptions = gradeLevels.filter((g) => g.active).map((g) => g.name);
 
   const [activeTab, setActiveTab] = useState<WorkflowTab>("maker");
-  const [role, setRole] = useState<Role>("Maker");
-  const [selectedGrade, setSelectedGrade] = useState<string>(GRADES[0]);
+  const [selectedGrade, setSelectedGrade] = useState<string>("");
   const [selectedTerm, setSelectedTerm] = useState<TermKey>("Term 1");
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
   const [draftLines, setDraftLines] = useState<GradeStatementLine[] | null>(null);
@@ -187,6 +193,20 @@ const FeeStructureSetupPage = () => {
   const [itemSearch, setItemSearch] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
 
+  // Table pagination
+  const [rejectedPage, setRejectedPage] = useState(1);
+  const [rejectedPerPage, setRejectedPerPage] = useState(10);
+  const [itemsPage, setItemsPage] = useState(1);
+  const [itemsPerPageCount, setItemsPerPageCount] = useState(10);
+  const [draftsPage, setDraftsPage] = useState(1);
+  const [draftsPerPage, setDraftsPerPage] = useState(10);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPerPage, setPendingPerPage] = useState(10);
+  const [approvedPage, setApprovedPage] = useState(1);
+  const [approvedPerPage, setApprovedPerPage] = useState(10);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPerPage, setAuditPerPage] = useState(10);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -202,7 +222,15 @@ const FeeStructureSetupPage = () => {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    SchoolApi.getGradeLevels().then((data) => setGradeLevels(data.map(toGradeLevelOption)));
+  }, []);
+
+  // Grade options load asynchronously — default the Maker Workspace to the first one once available.
+  useEffect(() => {
+    if (!selectedGrade && gradeOptions.length) setSelectedGrade(gradeOptions[0]);
+  }, [gradeOptions, selectedGrade]);
 
   // Latest approved lines per grade/term, derived from the loaded structures.
   const liveMap = useMemo<GradeStatementMap>(() => {
@@ -216,21 +244,27 @@ const FeeStructureSetupPage = () => {
     return map;
   }, [structures]);
 
-  const isMaker = role === "Maker" || role === "Administrator";
-  const isApprover = role === "Approver" || role === "Administrator";
-  const isReadOnly = role === "Auditor";
+  const currentUserName = user?.userName ?? "";
+  const isMaker = user?.permissions?.includes("FEES_MANAGE") ?? false;
+  const isApprover = user?.permissions?.includes("FEES_APPROVE") ?? false;
+  const isReadOnly = !isMaker;
 
-  const defaultLines = (): GradeStatementLine[] =>
-    feeItems.map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount }));
+  // A fee item with no grades selected applies to all grades; otherwise it only applies where tagged.
+  const itemsForGrade = (grade: string) =>
+    feeItems.filter((item) => item.grades.length === 0 || item.grades.includes(grade));
+
+  const defaultLines = (grade: string): GradeStatementLine[] =>
+    itemsForGrade(grade).map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount }));
 
   const approvedLines = (grade: string, term: TermKey): GradeStatementLine[] => {
     const existing = liveMap[grade]?.[term];
-    if (!existing?.length) return defaultLines();
+    const gradeItems = itemsForGrade(grade);
+    if (!existing?.length) return defaultLines(grade);
 
     const knownIds = new Set(existing.map((line) => line.itemId));
     return [
-      ...existing.filter((line) => feeItems.some((item) => item.id === line.itemId)),
-      ...feeItems.filter((item) => !knownIds.has(item.id)).map((item) => ({ itemId: item.id, enabled: false, amount: item.amount })),
+      ...existing.filter((line) => gradeItems.some((item) => item.id === line.itemId)),
+      ...gradeItems.filter((item) => !knownIds.has(item.id)).map((item) => ({ itemId: item.id, enabled: false, amount: item.amount })),
     ];
   };
 
@@ -277,6 +311,9 @@ const FeeStructureSetupPage = () => {
       && inDateRange(record.submittedAt, approverFrom, approverTo)
     )
     .sort((a, b) => b.academicYear - a.academicYear || new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  const totalPendingPages = Math.ceil(filteredPending.length / pendingPerPage);
+  const pagedPending = filteredPending.slice((pendingPage - 1) * pendingPerPage, pendingPage * pendingPerPage);
+
   const filteredApproved = approvedStructures
     .filter((record) =>
       matchesText(record, approvedSearch)
@@ -285,13 +322,28 @@ const FeeStructureSetupPage = () => {
       && inDateRange(record.reviewedAt ?? record.updatedAt, approvedFrom, approvedTo)
     )
     .sort((a, b) => b.academicYear - a.academicYear || new Date(b.reviewedAt ?? b.updatedAt).getTime() - new Date(a.reviewedAt ?? a.updatedAt).getTime());
+  const totalApprovedPages = Math.ceil(filteredApproved.length / approvedPerPage);
+  const pagedApproved = filteredApproved.slice((approvedPage - 1) * approvedPerPage, approvedPage * approvedPerPage);
+
   const filteredRejected = rejectedStructures.filter((record) => matchesText(record, rejectedSearch) || (record.rejectionReason ?? "").toLowerCase().includes(rejectedSearch.toLowerCase()));
+  const totalRejectedPages = Math.ceil(filteredRejected.length / rejectedPerPage);
+  const pagedRejected = filteredRejected.slice((rejectedPage - 1) * rejectedPerPage, rejectedPage * rejectedPerPage);
+
   const filteredDrafts = draftStructures.filter((record) => matchesText(record, draftSearch));
+  const totalDraftsPages = Math.ceil(filteredDrafts.length / draftsPerPage);
+  const pagedDrafts = filteredDrafts.slice((draftsPage - 1) * draftsPerPage, draftsPage * draftsPerPage);
+
+  const gradeLabel = (grades: string[]) =>
+    grades.length === 0 ? "All Grades" : grades.length === gradeOptions.length ? "All Grades" : grades.join(", ");
+
   const filteredItems = feeItems.filter((item) => {
     const q = itemSearch.trim().toLowerCase();
     if (!q) return true;
-    return `${item.name} ${item.grade} ${item.term}`.toLowerCase().includes(q);
+    return `${item.name} ${gradeLabel(item.grades)} ${item.term}`.toLowerCase().includes(q);
   });
+  const totalItemsPages = Math.ceil(filteredItems.length / itemsPerPageCount);
+  const pagedItems = filteredItems.slice((itemsPage - 1) * itemsPerPageCount, itemsPage * itemsPerPageCount);
+
   const visibleApprovedIds = new Set(filteredApproved.map((r) => r.id));
   const effectiveSelectedId = selectedApprovedId && visibleApprovedIds.has(selectedApprovedId) ? selectedApprovedId : filteredApproved[0]?.id;
   const selectedApprovedRecord = approvedStructures.find((r) => r.id === effectiveSelectedId) ?? null;
@@ -304,6 +356,8 @@ const FeeStructureSetupPage = () => {
         if (!qAudit) return matchesStructure;
         return matchesStructure && `${entry.actor} ${entry.action} ${entry.comment ?? ""}`.toLowerCase().includes(qAudit);
       });
+  const totalAuditPages = Math.ceil(filteredAudit.length / auditPerPage);
+  const pagedAudit = filteredAudit.slice((auditPage - 1) * auditPerPage, auditPage * auditPerPage);
 
   const itemName = (id: number) => feeItems.find((item) => item.id === id)?.name ?? `Item #${id}`;
   const sumEnabled = (lines: GradeStatementLine[]) => lines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
@@ -355,7 +409,7 @@ const FeeStructureSetupPage = () => {
       <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
       </body></html>`;
     const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) { toast({ title: "Pop-up blocked", description: "Allow pop-ups to print the fee structure.", variant: "destructive" }); return; }
+    if (!w) { Swal.fire({ icon: "error", title: "Pop-up blocked", text: "Allow pop-ups to print the fee structure.", showConfirmButton: true }); return; }
     w.document.open(); w.document.write(html); w.document.close();
   };
 
@@ -391,7 +445,7 @@ const FeeStructureSetupPage = () => {
 
   const saveDraft = async () => {
     if (!isMaker) {
-      toast({ title: "Maker access required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Maker access required", showConfirmButton: true });
       return;
     }
     try {
@@ -401,22 +455,21 @@ const FeeStructureSetupPage = () => {
         term: selectedTerm,
         lines: currentLines,
         note: submitNote,
-        maker: role,
       });
-      toast({ title: "Draft saved", description: `${selectedGrade} · ${selectedTerm}` });
+      Swal.fire({ title: "Success", text: `Draft saved — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
       await load();
     } catch (err) {
-      toast({ title: "Failed to save draft", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to save draft", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const openPreview = () => {
     if (!isMaker) {
-      toast({ title: "Maker access required", description: "Switch to Maker or Administrator to prepare fee structures.", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Maker access required", text: "You need the FEES_MANAGE permission to prepare fee structures.", showConfirmButton: true });
       return;
     }
     if (!isDirty) {
-      toast({ title: "No fee structure changes to submit" });
+      Swal.fire({ icon: "warning", title: "No fee structure changes to submit", showConfirmButton: true });
       return;
     }
     setPreviewOpen(true);
@@ -430,22 +483,21 @@ const FeeStructureSetupPage = () => {
         term: selectedTerm,
         lines: currentLines,
         note: submitNote,
-        maker: role,
         reworkUuid: editingRejectedId ?? undefined,
       });
       setPreviewOpen(false);
       resetMakerForm();
       setActiveTab("approver");
-      toast({ title: "Moved to approver", description: `${selectedGrade} · ${selectedTerm}` });
+      Swal.fire({ title: "Success", text: `Moved to approver — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
       await load();
     } catch (err) {
-      toast({ title: "Failed to submit", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to submit", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const loadRejectedForEditing = (record: FeeStructureRecord) => {
     if (!isMaker) {
-      toast({ title: "Maker access required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Maker access required", showConfirmButton: true });
       return;
     }
     setSelectedGrade(record.grade);
@@ -458,36 +510,36 @@ const FeeStructureSetupPage = () => {
 
   const approveStructure = async (record: FeeStructureRecord) => {
     if (!isApprover) {
-      toast({ title: "Approver access required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
       return;
     }
     try {
-      await FeeApi.approveStructure(record.id, role);
+      await FeeApi.approveStructure(record.id);
       setReviewing(null);
       setActiveTab("approved");
-      toast({ title: "Fee structure approved", description: `${record.grade} · ${record.term} is now live` });
+      Swal.fire({ title: "Success", text: `${record.grade} · ${record.term} is now live`, icon: "success", showConfirmButton: true });
       await load();
     } catch (err) {
-      toast({ title: "Failed to approve", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to approve", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const confirmReject = async () => {
     if (!rejectFor || !rejectComment.trim()) return;
     if (!isApprover) {
-      toast({ title: "Approver access required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
       return;
     }
     try {
-      await FeeApi.rejectStructure(rejectFor.id, role, rejectComment);
-      toast({ title: "Fee structure rejected", description: `${rejectFor.grade} · ${rejectFor.term}` });
+      await FeeApi.rejectStructure(rejectFor.id, rejectComment);
+      Swal.fire({ title: "Success", text: `Fee structure rejected — ${rejectFor.grade} · ${rejectFor.term}`, icon: "success", showConfirmButton: true });
       setRejectFor(null);
       setReviewing(null);
       setRejectComment("");
       setActiveTab("maker");
       await load();
     } catch (err) {
-      toast({ title: "Failed to reject", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to reject", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -499,33 +551,37 @@ const FeeStructureSetupPage = () => {
 
   const openEdit = (feeItem: typeof feeItems[number]) => {
     setEditingId(feeItem.id);
-    setForm({ name: feeItem.name, grade: feeItem.grade, amount: feeItem.amount, term: feeItem.term, active: feeItem.active });
+    setForm({ name: feeItem.name, grades: feeItem.grades, amount: feeItem.amount, term: feeItem.term, active: feeItem.active });
     setOpen(true);
   };
 
   const handleSubmit = async () => {
+    const gradeLevelUuids = form.grades
+      .map((name) => gradeLevels.find((g) => g.name === name)?.uuid)
+      .filter((uuid): uuid is string => Boolean(uuid));
+    const payload = { name: form.name, amount: form.amount, term: form.term, active: form.active, gradeLevelUuids };
     try {
       if (editingId !== null) {
-        await FeeApi.updateItem(editingId, form);
-        toast({ title: "Fee item updated" });
+        await FeeApi.updateItem(editingId, payload);
+        Swal.fire({ title: "Success", text: "Fee item updated", icon: "success", showConfirmButton: true });
       } else {
-        await FeeApi.createItem(form);
-        toast({ title: "Fee item added" });
+        await FeeApi.createItem(payload);
+        Swal.fire({ title: "Success", text: "Fee item added", icon: "success", showConfirmButton: true });
       }
       setOpen(false);
       await load();
     } catch (err) {
-      toast({ title: "Failed to save fee item", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to save fee item", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
       await FeeApi.deleteItem(id);
-      toast({ title: "Fee item removed" });
+      Swal.fire({ title: "Success", text: "Fee item removed", icon: "success", showConfirmButton: true });
       await load();
     } catch (err) {
-      toast({ title: "Failed to delete fee item", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to delete fee item", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -534,7 +590,7 @@ const FeeStructureSetupPage = () => {
       await FeeApi.toggleItem(id);
       await load();
     } catch (err) {
-      toast({ title: "Failed to update fee item", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to update fee item", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -598,12 +654,15 @@ const FeeStructureSetupPage = () => {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
-            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-            <Select value={role} onValueChange={(value) => setRole(value as Role)}>
-              <SelectTrigger className="h-8 w-[150px] border-0 bg-transparent px-0"><SelectValue /></SelectTrigger>
-              <SelectContent>{ROLES.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
-            </Select>
+          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground">
+            <ShieldCheck className="h-4 w-4" />
+            {isMaker && isApprover
+              ? "Maker + Approver access"
+              : isMaker
+                ? "Maker access"
+                : isApprover
+                  ? "Approver access"
+                  : "View-only access"}
           </div>
           <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4" /> Add Fee Item</Button>
         </div>
@@ -661,7 +720,7 @@ const FeeStructureSetupPage = () => {
                   </Select>
                   <Select value={selectedGrade} onValueChange={(value) => { setSelectedGrade(value); setDraftLines(null); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectContent>
+                    <SelectContent>{gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectContent>
                   </Select>
                   <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value as TermKey); setDraftLines(null); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
@@ -699,7 +758,7 @@ const FeeStructureSetupPage = () => {
                           <Checkbox checked={line.enabled} disabled={!isMaker || isReadOnly} onCheckedChange={(checked) => updateLine(line.itemId, { enabled: Boolean(checked) })} />
                         </TableCell>
                         <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell><Badge variant="outline">{item.grade}</Badge></TableCell>
+                        <TableCell><Badge variant="outline">{gradeLabel(item.grades)}</Badge></TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
                         <TableCell>
                           <Input
@@ -731,11 +790,12 @@ const FeeStructureSetupPage = () => {
               <CardContent>
               <div className="mb-3 relative max-w-sm">
                 <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-8" placeholder="Search rejected..." value={rejectedSearch} onChange={(event) => setRejectedSearch(event.target.value)} />
+                <Input className="pl-8" placeholder="Search rejected..." value={rejectedSearch} onChange={(event) => { setRejectedSearch(event.target.value); setRejectedPage(1); }} />
               </div>
               {filteredRejected.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No rejected fee structures.</p>
                 ) : (
+                  <>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -745,7 +805,7 @@ const FeeStructureSetupPage = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredRejected.map((record) => (
+                      {pagedRejected.map((record) => (
                         <TableRow key={record.id}>
                           <TableCell className="font-medium">{record.grade} · {record.term}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{record.rejectionReason}</TableCell>
@@ -758,6 +818,9 @@ const FeeStructureSetupPage = () => {
                       ))}
                     </TableBody>
                   </Table>
+                  <Pagination currentPage={rejectedPage} totalPages={totalRejectedPages} onPageChange={setRejectedPage}
+                    itemsPerPage={rejectedPerPage} onItemsPerPageChange={(v) => { setRejectedPerPage(v); setRejectedPage(1); }} />
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -770,24 +833,25 @@ const FeeStructureSetupPage = () => {
               <CardContent>
                 <div className="mb-3 relative max-w-sm">
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="Search fee items..." value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} />
+                  <Input className="pl-8" placeholder="Search fee items..." value={itemSearch} onChange={(event) => { setItemSearch(event.target.value); setItemsPage(1); }} />
                 </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Fee Item</TableHead>
+                      <TableHead>Applicable Grades</TableHead>
+                      <TableHead>Billing Cycle</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead className="text-center">Active</TableHead>
                       <TableHead className="w-24 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredItems.map((item) => (
+                    {pagedItems.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-xs text-muted-foreground">{item.grade} · {item.term}</div>
-                        </TableCell>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell className="text-sm">{gradeLabel(item.grades)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
                         <TableCell className="text-right font-semibold">{item.amount.toLocaleString()}</TableCell>
                         <TableCell className="text-center"><Switch checked={item.active} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
                         <TableCell className="text-right">
@@ -800,6 +864,8 @@ const FeeStructureSetupPage = () => {
                     ))}
                   </TableBody>
                 </Table>
+                <Pagination currentPage={itemsPage} totalPages={totalItemsPages} onPageChange={setItemsPage}
+                  itemsPerPage={itemsPerPageCount} onItemsPerPageChange={(v) => { setItemsPerPageCount(v); setItemsPage(1); }} />
               </CardContent>
             </Card>
           </div>
@@ -813,7 +879,7 @@ const FeeStructureSetupPage = () => {
               <CardContent>
                 <div className="mb-3 relative max-w-sm">
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="Search drafts..." value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} />
+                  <Input className="pl-8" placeholder="Search drafts..." value={draftSearch} onChange={(event) => { setDraftSearch(event.target.value); setDraftsPage(1); }} />
                 </div>
                 <Table>
                   <TableHeader>
@@ -825,7 +891,7 @@ const FeeStructureSetupPage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDrafts.map((record) => (
+                    {pagedDrafts.map((record) => (
                       <TableRow key={record.id}>
                         <TableCell className="font-medium">{record.grade} · {record.term}</TableCell>
                         <TableCell>KES {sumEnabled(record.lines).toLocaleString()}</TableCell>
@@ -835,6 +901,8 @@ const FeeStructureSetupPage = () => {
                     ))}
                   </TableBody>
                 </Table>
+                <Pagination currentPage={draftsPage} totalPages={totalDraftsPages} onPageChange={setDraftsPage}
+                  itemsPerPage={draftsPerPage} onItemsPerPageChange={(v) => { setDraftsPerPage(v); setDraftsPage(1); }} />
               </CardContent>
             </Card>
           )}
@@ -850,16 +918,16 @@ const FeeStructureSetupPage = () => {
               <div className="mb-4 flex flex-wrap items-end gap-2">
                 <div className="relative min-w-[220px] flex-1">
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="Search grade, term, maker, note..." value={approverSearch} onChange={(event) => setApproverSearch(event.target.value)} />
+                  <Input className="pl-8" placeholder="Search grade, term, maker, note..." value={approverSearch} onChange={(event) => { setApproverSearch(event.target.value); setPendingPage(1); }} />
                 </div>
-                <Select value={approverGrade} onValueChange={setApproverGrade}>
+                <Select value={approverGrade} onValueChange={(value) => { setApproverGrade(value); setPendingPage(1); }}>
                   <SelectTrigger className="w-[160px]"><SelectValue placeholder="Grade" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Grades</SelectItem>
-                    {GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
+                    {gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Select value={approverYear} onValueChange={setApproverYear}>
+                <Select value={approverYear} onValueChange={(value) => { setApproverYear(value); setPendingPage(1); }}>
                   <SelectTrigger className="w-[150px]"><SelectValue placeholder="Select Year" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Select Year</SelectItem>
@@ -868,14 +936,14 @@ const FeeStructureSetupPage = () => {
                 </Select>
                 <div className="flex flex-col">
                   <label className="text-xs text-muted-foreground">From</label>
-                  <Input type="date" className="w-[160px]" value={approverFrom} onChange={(event) => setApproverFrom(event.target.value)} />
+                  <Input type="date" className="w-[160px]" value={approverFrom} onChange={(event) => { setApproverFrom(event.target.value); setPendingPage(1); }} />
                 </div>
                 <div className="flex flex-col">
                   <label className="text-xs text-muted-foreground">To</label>
-                  <Input type="date" className="w-[160px]" value={approverTo} onChange={(event) => setApproverTo(event.target.value)} />
+                  <Input type="date" className="w-[160px]" value={approverTo} onChange={(event) => { setApproverTo(event.target.value); setPendingPage(1); }} />
                 </div>
                 {(approverSearch || approverGrade !== "all" || approverYear !== "all" || approverFrom || approverTo) && (
-                  <Button variant="ghost" size="sm" onClick={() => { setApproverSearch(""); setApproverGrade("all"); setApproverYear("all"); setApproverFrom(""); setApproverTo(""); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setApproverSearch(""); setApproverGrade("all"); setApproverYear("all"); setApproverFrom(""); setApproverTo(""); setPendingPage(1); }}>
                     <RotateCcw className="h-4 w-4" /> Reset
                   </Button>
                 )}
@@ -883,6 +951,7 @@ const FeeStructureSetupPage = () => {
               {filteredPending.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No fee structures pending approval.</p>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -896,7 +965,7 @@ const FeeStructureSetupPage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPending.map((record) => (
+                    {pagedPending.map((record) => (
                       <TableRow key={record.id}>
                         <TableCell className="font-medium">{record.grade} · {record.term}</TableCell>
                         <TableCell><Badge variant="outline">{record.academicYear}</Badge></TableCell>
@@ -915,6 +984,9 @@ const FeeStructureSetupPage = () => {
                     ))}
                   </TableBody>
                 </Table>
+                <Pagination currentPage={pendingPage} totalPages={totalPendingPages} onPageChange={setPendingPage}
+                  itemsPerPage={pendingPerPage} onItemsPerPageChange={(v) => { setPendingPerPage(v); setPendingPage(1); }} />
+                </>
               )}
             </CardContent>
           </Card>
@@ -930,16 +1002,16 @@ const FeeStructureSetupPage = () => {
               <div className="mb-4 flex flex-wrap items-end gap-2">
                 <div className="relative min-w-[220px] flex-1">
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="Search grade, term, version, approver..." value={approvedSearch} onChange={(event) => setApprovedSearch(event.target.value)} />
+                  <Input className="pl-8" placeholder="Search grade, term, version, approver..." value={approvedSearch} onChange={(event) => { setApprovedSearch(event.target.value); setApprovedPage(1); }} />
                 </div>
-                <Select value={approvedGrade} onValueChange={setApprovedGrade}>
+                <Select value={approvedGrade} onValueChange={(value) => { setApprovedGrade(value); setApprovedPage(1); }}>
                   <SelectTrigger className="w-[160px]"><SelectValue placeholder="Grade" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Grades</SelectItem>
-                    {GRADES.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
+                    {gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Select value={approvedYear} onValueChange={setApprovedYear}>
+                <Select value={approvedYear} onValueChange={(value) => { setApprovedYear(value); setApprovedPage(1); }}>
                   <SelectTrigger className="w-[150px]"><SelectValue placeholder="Select Year" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Select Year</SelectItem>
@@ -948,14 +1020,14 @@ const FeeStructureSetupPage = () => {
                 </Select>
                 <div className="flex flex-col">
                   <label className="text-xs text-muted-foreground">Approved From</label>
-                  <Input type="date" className="w-[160px]" value={approvedFrom} onChange={(event) => setApprovedFrom(event.target.value)} />
+                  <Input type="date" className="w-[160px]" value={approvedFrom} onChange={(event) => { setApprovedFrom(event.target.value); setApprovedPage(1); }} />
                 </div>
                 <div className="flex flex-col">
                   <label className="text-xs text-muted-foreground">Approved To</label>
-                  <Input type="date" className="w-[160px]" value={approvedTo} onChange={(event) => setApprovedTo(event.target.value)} />
+                  <Input type="date" className="w-[160px]" value={approvedTo} onChange={(event) => { setApprovedTo(event.target.value); setApprovedPage(1); }} />
                 </div>
                 {(approvedSearch || approvedGrade !== "all" || approvedYear !== "all" || approvedFrom || approvedTo) && (
-                  <Button variant="ghost" size="sm" onClick={() => { setApprovedSearch(""); setApprovedGrade("all"); setApprovedYear("all"); setApprovedFrom(""); setApprovedTo(""); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setApprovedSearch(""); setApprovedGrade("all"); setApprovedYear("all"); setApprovedFrom(""); setApprovedTo(""); setApprovedPage(1); }}>
                     <RotateCcw className="h-4 w-4" /> Reset
                   </Button>
                 )}
@@ -963,6 +1035,7 @@ const FeeStructureSetupPage = () => {
               {filteredApproved.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No approved fee structures yet.</p>
               ) : (
+                <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -978,11 +1051,11 @@ const FeeStructureSetupPage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredApproved.map((record) => (
+                    {pagedApproved.map((record) => (
                       <TableRow
                         key={record.id}
                         data-state={selectedApprovedRecord?.id === record.id ? "selected" : undefined}
-                        onClick={() => setSelectedApprovedId(record.id)}
+                        onClick={() => { setSelectedApprovedId(record.id); setAuditPage(1); }}
                         className="cursor-pointer"
                       >
                         <TableCell className="font-semibold">V{record.version}</TableCell>
@@ -1003,6 +1076,9 @@ const FeeStructureSetupPage = () => {
                     ))}
                   </TableBody>
                 </Table>
+                <Pagination currentPage={approvedPage} totalPages={totalApprovedPages} onPageChange={setApprovedPage}
+                  itemsPerPage={approvedPerPage} onItemsPerPageChange={(v) => { setApprovedPerPage(v); setApprovedPage(1); }} />
+                </>
               )}
             </CardContent>
           </Card>
@@ -1023,11 +1099,12 @@ const FeeStructureSetupPage = () => {
                 <>
                   <div className="mb-3 relative max-w-sm">
                     <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input className="pl-8" placeholder="Search this audit trail..." value={auditSearch} onChange={(event) => setAuditSearch(event.target.value)} />
+                    <Input className="pl-8" placeholder="Search this audit trail..." value={auditSearch} onChange={(event) => { setAuditSearch(event.target.value); setAuditPage(1); }} />
                   </div>
                   {filteredAudit.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No activity yet.</p>
                   ) : (
+                    <>
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -1039,7 +1116,7 @@ const FeeStructureSetupPage = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredAudit.map((entry) => (
+                        {pagedAudit.map((entry) => (
                           <TableRow key={entry.id}>
                             <TableCell className="text-xs text-muted-foreground">{fmtDate(entry.at)}</TableCell>
                             <TableCell><Badge variant="outline">{entry.actor}</Badge></TableCell>
@@ -1050,6 +1127,9 @@ const FeeStructureSetupPage = () => {
                         ))}
                       </TableBody>
                     </Table>
+                    <Pagination currentPage={auditPage} totalPages={totalAuditPages} onPageChange={setAuditPage}
+                      itemsPerPage={auditPerPage} onItemsPerPageChange={(v) => { setAuditPerPage(v); setAuditPage(1); }} />
+                    </>
                   )}
                 </>
               ) : (
@@ -1067,6 +1147,7 @@ const FeeStructureSetupPage = () => {
         value={form}
         onChange={setForm}
         onSubmit={handleSubmit}
+        gradeOptions={gradeOptions}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -1084,7 +1165,7 @@ const FeeStructureSetupPage = () => {
             status: "Pending Approval",
             lines: currentLines,
             baseline: baseLines,
-            maker: role,
+            maker: currentUserName,
             submittedAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           })}

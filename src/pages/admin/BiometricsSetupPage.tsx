@@ -10,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ArrowLeft, Fingerprint, ScanFace, Trash2, KeyRound, RefreshCw, UserCheck, Dices } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { StaffApi, StudentApi, BiometricsApi, DeviceApi, ClassTeacherApi } from "@/services/api";
+import Swal from "sweetalert2";
+import { StaffApi, StudentApi, BiometricsApi, DeviceApi, ClassTeacherApi, SchoolApi } from "@/services/api";
 import { triggerFingerprintGesture, isPlatformAuthenticatorAvailable } from "@/lib/webauthnGesture";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { Combobox } from "@/components/ui/combobox";
+import Pagination from "@/utils/Pagination";
 
 const FINGER_NAMES = ["THUMB", "INDEX", "MIDDLE", "RING", "LITTLE"];
 
@@ -33,7 +35,6 @@ interface OwnerConfig {
 }
 
 const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
-  const { toast } = useToast();
   const [people, setPeople] = useState<any[]>([]);
   const [selectedUuid, setSelectedUuid] = useState("");
   const [bioData, setBioData] = useState<any>(null);
@@ -67,25 +68,25 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
 
   const handleEnroll = async () => {
     if (!form.leftFingerprintTemplateRef || !form.rightFingerprintTemplateRef) {
-      toast({ title: "Both left and right fingerprint refs are required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Both left and right fingerprint refs are required", showConfirmButton: true });
       return;
     }
     try {
       await config.api.enroll(selectedUuid, form);
-      toast({ title: `${config.label} enrolled for biometrics` });
+      Swal.fire({ title: "Success", text: `${config.label} enrolled for biometrics`, icon: "success", showConfirmButton: true });
       loadBioData(selectedUuid);
     } catch (err) {
-      toast({ title: "Enrollment failed", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Enrollment failed", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleStatusToggle = async (status: string) => {
     try {
       await config.api.updateStatus(bioData.uuid, status);
-      toast({ title: `Status set to ${status}` });
+      Swal.fire({ title: "Success", text: `Status set to ${status}`, icon: "success", showConfirmButton: true });
       loadBioData(selectedUuid);
     } catch (err) {
-      toast({ title: "Failed to update status", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to update status", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -93,12 +94,14 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
     try {
       if (withFingerprintPrompt) await triggerFingerprintGesture(config.label);
       const result = await config.api.capture(bioData.uuid, "WEB-TEST", "Test scan via browser");
-      toast({
+      Swal.fire({
         title: `${result.eventType === "CLOCK_IN" || result.eventType === "ENTRY" ? "Clocked in" : "Clocked out"}`,
-        description: `${result.ownerName} — ${result.status} at ${new Date(result.clockInOrEntry ?? result.clockOutOrExit).toLocaleTimeString()}`,
+        text: `${result.ownerName} — ${result.status} at ${new Date(result.clockInOrEntry ?? result.clockOutOrExit).toLocaleTimeString()}`,
+        icon: "success",
+        showConfirmButton: true,
       });
     } catch (err: any) {
-      toast({ title: "Test scan failed", description: err?.message ?? getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Test scan failed", text: err?.message ?? getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -232,17 +235,18 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
 // ── Devices panel ────────────────────────────────────────────────────────────
 
 const DevicesPanel = () => {
-  const { toast } = useToast();
   const [devices, setDevices] = useState<any[]>([]);
   const [form, setForm] = useState({ deviceCode: "", name: "", location: "", deviceType: "FINGERPRINT" });
   const [newKey, setNewKey] = useState<{ deviceCode: string; apiKey: string } | null>(null);
+  const [devicesPage, setDevicesPage] = useState(1);
+  const [devicesPerPage, setDevicesPerPage] = useState(10);
 
   const load = () => DeviceApi.getAll().then(setDevices);
   useEffect(() => { load(); }, []);
 
   const handleRegister = async () => {
     if (!form.deviceCode || !form.name) {
-      toast({ title: "Device code and name are required", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Device code and name are required", showConfirmButton: true });
       return;
     }
     try {
@@ -251,7 +255,7 @@ const DevicesPanel = () => {
       setForm({ deviceCode: "", name: "", location: "", deviceType: "FINGERPRINT" });
       load();
     } catch (err) {
-      toast({ title: "Failed to register device", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to register device", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -260,7 +264,7 @@ const DevicesPanel = () => {
       const updated = await DeviceApi.regenerateKey(uuid);
       setNewKey({ deviceCode, apiKey: updated.apiKey });
     } catch (err) {
-      toast({ title: "Failed to regenerate key", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to regenerate key", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -269,14 +273,17 @@ const DevicesPanel = () => {
       await DeviceApi.updateStatus(uuid, current === "ACTIVE" ? "INACTIVE" : "ACTIVE");
       load();
     } catch (err) {
-      toast({ title: "Failed to update device", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to update device", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleDelete = async (uuid: string) => {
-    try { await DeviceApi.delete(uuid); toast({ title: "Device removed" }); load(); }
-    catch (err) { toast({ title: "Failed to delete device", description: getBackendErrorMessage(err), variant: "destructive" }); }
+    try { await DeviceApi.delete(uuid); Swal.fire({ title: "Success", text: "Device removed", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Failed to delete device", text: getBackendErrorMessage(err), showConfirmButton: true }); }
   };
+
+  const totalDevicesPages = Math.ceil(devices.length / devicesPerPage);
+  const pagedDevices = devices.slice((devicesPage - 1) * devicesPerPage, devicesPage * devicesPerPage);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -313,9 +320,9 @@ const DevicesPanel = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {devices.length === 0 ? (
+              {pagedDevices.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">No devices registered.</TableCell></TableRow>
-              ) : devices.map((d) => (
+              ) : pagedDevices.map((d) => (
                 <TableRow key={d.uuid}>
                   <TableCell className="font-mono text-xs">{d.deviceCode}</TableCell>
                   <TableCell>{d.name}</TableCell>
@@ -334,6 +341,8 @@ const DevicesPanel = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={devicesPage} totalPages={totalDevicesPages} onPageChange={setDevicesPage}
+            itemsPerPage={devicesPerPage} onItemsPerPageChange={v => { setDevicesPerPage(v); setDevicesPage(1); }} />
         </CardContent>
       </Card>
 
@@ -353,33 +362,65 @@ const DevicesPanel = () => {
 // ── Class teachers panel ─────────────────────────────────────────────────────
 
 const ClassTeachersPanel = () => {
-  const { toast } = useToast();
   const [assignments, setAssignments] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
-  const [form, setForm] = useState({ teacherUuid: "", grade: "", stream: "" });
+  const [grades, setGrades] = useState<{ uuid: string; name: string; displayOrder: number; streamNames: string[] }[]>([]);
+  const [form, setForm] = useState({ teacherUuid: "", gradeLevelUuid: "", stream: "" });
+  const [assignmentsPage, setAssignmentsPage] = useState(1);
+  const [assignmentsPerPage, setAssignmentsPerPage] = useState(10);
 
   const load = () => ClassTeacherApi.getAll().then(setAssignments);
-  useEffect(() => { load(); StaffApi.getAll().then(setStaff); }, []);
+  useEffect(() => {
+    load();
+    StaffApi.getAll().then((data) => setStaff(data.filter((s: any) => s.staffType === "TEACHING")));
+    SchoolApi.getGradeLevels().then((data) => {
+      const list = Array.isArray(data) ? data : [];
+      setGrades(
+        list
+          .map((g: any) => ({ uuid: g.uuid, name: g.name, displayOrder: g.displayOrder, streamNames: Array.isArray(g.streamNames) ? g.streamNames : [] }))
+          .sort((a, b) => a.displayOrder - b.displayOrder)
+      );
+    });
+  }, []);
+
+  const teacherOptions = staff.map((s) => ({ value: s.uuid, label: `${s.firstName} ${s.lastName} (${s.staffId})` }));
+
+  // A grade/stream that already has a class teacher must not be offered again — each stream (or each
+  // grade with no streams) can only ever have one class teacher.
+  const assignedKeys = new Set(assignments.map((a) => `${a.gradeLevelUuid}::${a.stream ?? ""}`));
+  const availableStreamsFor = (grade: { uuid: string; streamNames: string[] }) =>
+    grade.streamNames.filter((s) => !assignedKeys.has(`${grade.uuid}::${s}`));
+
+  const gradeOptions = grades
+    .filter((g) => (g.streamNames.length === 0 ? !assignedKeys.has(`${g.uuid}::`) : availableStreamsFor(g).length > 0))
+    .map((g) => ({ value: g.uuid, label: g.name }));
+
+  const selectedGrade = grades.find((g) => g.uuid === form.gradeLevelUuid);
+  const gradeHasStreams = (selectedGrade?.streamNames.length ?? 0) > 0;
+  const streamOptions = selectedGrade ? availableStreamsFor(selectedGrade).map((s) => ({ value: s, label: s })) : [];
 
   const handleAssign = async () => {
-    if (!form.teacherUuid || !form.grade || !form.stream) {
-      toast({ title: "Teacher, grade and stream are all required", variant: "destructive" });
+    if (!form.teacherUuid || !form.gradeLevelUuid || (gradeHasStreams && !form.stream)) {
+      Swal.fire({ icon: "error", title: gradeHasStreams ? "Teacher, grade and stream are all required" : "Teacher and grade are required", showConfirmButton: true });
       return;
     }
     try {
       await ClassTeacherApi.assign(form);
-      toast({ title: "Class teacher assigned" });
-      setForm({ teacherUuid: "", grade: "", stream: "" });
+      Swal.fire({ title: "Success", text: "Class teacher assigned", icon: "success", showConfirmButton: true });
+      setForm({ teacherUuid: "", gradeLevelUuid: "", stream: "" });
       load();
     } catch (err) {
-      toast({ title: "Failed to assign", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to assign", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleUnassign = async (uuid: string) => {
-    try { await ClassTeacherApi.unassign(uuid); toast({ title: "Assignment removed" }); load(); }
-    catch (err) { toast({ title: "Failed to remove", description: getBackendErrorMessage(err), variant: "destructive" }); }
+    try { await ClassTeacherApi.unassign(uuid); Swal.fire({ title: "Success", text: "Assignment removed", icon: "success", showConfirmButton: true }); load(); }
+    catch (err) { Swal.fire({ icon: "error", title: "Failed to remove", text: getBackendErrorMessage(err), showConfirmButton: true }); }
   };
+
+  const totalAssignmentsPages = Math.ceil(assignments.length / assignmentsPerPage);
+  const pagedAssignments = assignments.slice((assignmentsPage - 1) * assignmentsPerPage, assignmentsPage * assignmentsPerPage);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -388,15 +429,39 @@ const ClassTeachersPanel = () => {
         <CardContent className="space-y-3">
           <div className="space-y-2">
             <Label>Teacher</Label>
-            <Select value={form.teacherUuid} onValueChange={(v) => setForm({ ...form, teacherUuid: v })}>
-              <SelectTrigger><SelectValue placeholder="Select teacher" /></SelectTrigger>
-              <SelectContent>
-                {staff.map((s) => <SelectItem key={s.uuid} value={s.uuid}>{s.firstName} {s.lastName} ({s.staffId})</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Combobox
+              options={teacherOptions}
+              value={form.teacherUuid}
+              onChange={(v) => setForm({ ...form, teacherUuid: v })}
+              placeholder="Select teacher"
+              searchPlaceholder="Search teachers..."
+              emptyText="No teaching staff found."
+            />
           </div>
-          <div className="space-y-2"><Label>Grade</Label><Input value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} placeholder="e.g. Grade 5" /></div>
-          <div className="space-y-2"><Label>Stream</Label><Input value={form.stream} onChange={(e) => setForm({ ...form, stream: e.target.value })} placeholder="e.g. A" /></div>
+          <div className="space-y-2">
+            <Label>Grade</Label>
+            <Combobox
+              options={gradeOptions}
+              value={form.gradeLevelUuid}
+              onChange={(v) => setForm({ ...form, gradeLevelUuid: v, stream: "" })}
+              placeholder="Select grade"
+              searchPlaceholder="Search grades..."
+              emptyText="No grades found."
+            />
+          </div>
+          {gradeHasStreams && (
+            <div className="space-y-2">
+              <Label>Stream</Label>
+              <Combobox
+                options={streamOptions}
+                value={form.stream}
+                onChange={(v) => setForm({ ...form, stream: v })}
+                placeholder="Select stream"
+                searchPlaceholder="Search streams..."
+                emptyText="No streams found."
+              />
+            </div>
+          )}
           <Button onClick={handleAssign} className="w-full"><UserCheck className="w-4 h-4 mr-1" /> Assign</Button>
         </CardContent>
       </Card>
@@ -407,9 +472,9 @@ const ClassTeachersPanel = () => {
           <Table>
             <TableHeader><TableRow><TableHead>Teacher</TableHead><TableHead>Staff ID</TableHead><TableHead>Class</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
             <TableBody>
-              {assignments.length === 0 ? (
+              {pagedAssignments.length === 0 ? (
                 <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-8">No class teachers assigned yet.</TableCell></TableRow>
-              ) : assignments.map((a) => (
+              ) : pagedAssignments.map((a) => (
                 <TableRow key={a.uuid}>
                   <TableCell className="font-medium">{a.teacherName}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{a.staffId}</TableCell>
@@ -421,6 +486,8 @@ const ClassTeachersPanel = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={assignmentsPage} totalPages={totalAssignmentsPages} onPageChange={setAssignmentsPage}
+            itemsPerPage={assignmentsPerPage} onItemsPerPageChange={v => { setAssignmentsPerPage(v); setAssignmentsPage(1); }} />
         </CardContent>
       </Card>
     </div>

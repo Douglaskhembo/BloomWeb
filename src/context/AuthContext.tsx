@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { setAuthToken, setUnauthorizedHandler } from '../services/api';
-import { toast } from 'sonner';
+import Swal from 'sweetalert2';
 
 export interface AuthUser {
   userUuid: string;
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       logoutRef.current();
-      toast.error('Your session has ended. Please log in again.');
+      Swal.fire({ icon: 'error', title: 'Error', text: 'Your session has ended. Please log in again.', showConfirmButton: true });
     });
   }, []);
 

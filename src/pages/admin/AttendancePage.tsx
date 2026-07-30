@@ -11,13 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Search, Download, Fingerprint } from "lucide-react";
 import { AttendanceReportApi } from "@/services/api";
 import { downloadAttendanceReport } from "@/lib/attendanceExport";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
 
 const AttendancePage = () => {
-  const { toast } = useToast();
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
@@ -27,6 +27,9 @@ const AttendancePage = () => {
   const [staffId, setStaffId] = useState("");
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendancePerPage, setAttendancePerPage] = useState(10);
 
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadFrom, setDownloadFrom] = useState(todayISO());
@@ -40,6 +43,7 @@ const AttendancePage = () => {
         ? await AttendanceReportApi.searchStudents({ from, to, grade: grade || undefined, stream: stream || undefined, admissionNumber: admissionNumber || undefined })
         : await AttendanceReportApi.searchStaff({ from, to, staffId: staffId || undefined });
       setRows(data);
+      setAttendancePage(1);
     } finally {
       setLoading(false);
     }
@@ -53,12 +57,15 @@ const AttendancePage = () => {
       : await AttendanceReportApi.searchStaff({ from: downloadFrom, to: downloadTo, staffId: staffId || undefined });
 
     if (data.length === 0) {
-      toast({ title: "No records in that date range", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "No records in that date range", showConfirmButton: true });
       return;
     }
     downloadAttendanceReport(downloadFormat, `${tab === "students" ? "Student" : "Staff"}-Attendance-${downloadFrom}_to_${downloadTo}`, data);
     setDownloadOpen(false);
   };
+
+  const totalAttendancePages = Math.ceil(rows.length / attendancePerPage);
+  const pagedRows = rows.slice((attendancePage - 1) * attendancePerPage, attendancePage * attendancePerPage);
 
   return (
     <div className="space-y-6">
@@ -106,6 +113,7 @@ const AttendancePage = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -123,7 +131,7 @@ const AttendancePage = () => {
                   <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
                     <Fingerprint className="w-6 h-6 mx-auto mb-2 opacity-40" /> No attendance records for this range.
                   </TableCell></TableRow>
-                ) : rows.map((r) => (
+                ) : pagedRows.map((r) => (
                   <TableRow key={r.uuid}>
                     <TableCell className="font-mono text-xs">{r.ownerRef}</TableCell>
                     <TableCell className="font-medium">{r.ownerName}</TableCell>
@@ -136,6 +144,9 @@ const AttendancePage = () => {
                 ))}
               </TableBody>
             </Table>
+            <Pagination currentPage={attendancePage} totalPages={totalAttendancePages} onPageChange={setAttendancePage}
+              itemsPerPage={attendancePerPage} onItemsPerPageChange={v => { setAttendancePerPage(v); setAttendancePage(1); }} />
+            </>
           )}
         </CardContent>
       </Card>

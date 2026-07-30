@@ -6,7 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Download, FileText, Search, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 interface TermReport {
   id: string;
@@ -41,6 +42,8 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
   const [filterTerm, setFilterTerm] = useState("all");
   const [filterYear, setFilterYear] = useState("all");
   const [filterGrade, setFilterGrade] = useState("all");
+  const [reportsPage, setReportsPage] = useState(1);
+  const [reportsPerPage, setReportsPerPage] = useState(10);
 
   // Parent sees only their student's reports
   const parentStudentAdmNo = "ADM001";
@@ -58,15 +61,28 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
   });
 
   const handleDownload = (report: TermReport) => {
-    toast.success(`Downloading ${report.term} ${report.year} report for ${report.studentName}`);
+    Swal.fire({
+      title: 'Success',
+      text: `Downloading ${report.term} ${report.year} report for ${report.studentName}`,
+      icon: 'success',
+      showConfirmButton: true,
+    });
   };
 
   const handleBulkDownload = () => {
-    toast.success(`Downloading ${filteredReports.length} report(s) as ZIP`);
+    Swal.fire({
+      title: 'Success',
+      text: `Downloading ${filteredReports.length} report(s) as ZIP`,
+      icon: 'success',
+      showConfirmButton: true,
+    });
   };
 
   const uniqueYears = [...new Set(sampleReports.map((r) => r.year))].sort().reverse();
   const uniqueGrades = [...new Set(sampleReports.map((r) => r.grade))].sort();
+
+  const totalReportPages = Math.ceil(filteredReports.length / reportsPerPage);
+  const pagedReports = filteredReports.slice((reportsPage - 1) * reportsPerPage, reportsPage * reportsPerPage);
 
   return (
     <div className="space-y-6">
@@ -103,12 +119,12 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
                 <Input
                   placeholder="Search student name or admission no..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => { setSearchQuery(e.target.value); setReportsPage(1); }}
                   className="pl-9"
                 />
               </div>
             )}
-            <Select value={filterTerm} onValueChange={setFilterTerm}>
+            <Select value={filterTerm} onValueChange={(v) => { setFilterTerm(v); setReportsPage(1); }}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Term" />
               </SelectTrigger>
@@ -119,7 +135,7 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
                 <SelectItem value="Term 3">Term 3</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={filterYear} onValueChange={setFilterYear}>
+            <Select value={filterYear} onValueChange={(v) => { setFilterYear(v); setReportsPage(1); }}>
               <SelectTrigger className="w-[130px]">
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
@@ -131,7 +147,7 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
               </SelectContent>
             </Select>
             {role !== "parent" && (
-              <Select value={filterGrade} onValueChange={setFilterGrade}>
+              <Select value={filterGrade} onValueChange={(v) => { setFilterGrade(v); setReportsPage(1); }}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Grade" />
                 </SelectTrigger>
@@ -173,7 +189,7 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredReports.map((report) => (
+                pagedReports.map((report) => (
                   <TableRow key={report.id}>
                     {role !== "parent" && <TableCell className="font-medium">{report.studentName}</TableCell>}
                     {role !== "parent" && <TableCell>{report.admissionNo}</TableCell>}
@@ -207,6 +223,8 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
               )}
             </TableBody>
           </Table>
+          <Pagination currentPage={reportsPage} totalPages={totalReportPages} onPageChange={setReportsPage}
+            itemsPerPage={reportsPerPage} onItemsPerPageChange={v => { setReportsPerPage(v); setReportsPage(1); }} />
         </CardContent>
       </Card>
 

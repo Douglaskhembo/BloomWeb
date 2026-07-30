@@ -10,6 +10,7 @@ import { Search, Download, Fingerprint, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { StaffApi, ClassTeacherApi, AttendanceReportApi } from "@/services/api";
 import { downloadAttendanceReport } from "@/lib/attendanceExport";
+import Pagination from "@/utils/Pagination";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
@@ -25,6 +26,8 @@ const TeacherAttendance = () => {
   const [format, setFormat] = useState<"csv" | "excel" | "pdf">("pdf");
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [rowsPage, setRowsPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   useEffect(() => {
     if (!user?.profileRef) return;
@@ -42,6 +45,7 @@ const TeacherAttendance = () => {
     setLoading(true);
     try {
       setRows(await AttendanceReportApi.getMyClass({ teacherUuid: staff.uuid, from, to }));
+      setRowsPage(1);
     } finally {
       setLoading(false);
     }
@@ -53,6 +57,9 @@ const TeacherAttendance = () => {
     if (rows.length === 0) return;
     downloadAttendanceReport(format, `Class-Attendance-${assignment?.grade}-${assignment?.stream}-${from}_to_${to}`, rows);
   };
+
+  const totalRowsPages = Math.ceil(rows.length / rowsPerPage);
+  const pagedRows = rows.slice((rowsPage - 1) * rowsPerPage, rowsPage * rowsPerPage);
 
   if (staff && assignmentChecked && !assignment) {
     return (
@@ -108,11 +115,11 @@ const TeacherAttendance = () => {
                 <TableRow><TableHead>Adm No</TableHead><TableHead>Student</TableHead><TableHead>Date</TableHead><TableHead>Entry</TableHead><TableHead>Exit</TableHead><TableHead>Status</TableHead></TableRow>
               </TableHeader>
               <TableBody>
-                {rows.length === 0 ? (
+                {pagedRows.length === 0 ? (
                   <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">
                     <Fingerprint className="w-6 h-6 mx-auto mb-2 opacity-40" /> No attendance records for this range.
                   </TableCell></TableRow>
-                ) : rows.map((r) => (
+                ) : pagedRows.map((r) => (
                   <TableRow key={r.uuid}>
                     <TableCell className="font-mono text-xs">{r.ownerRef}</TableCell>
                     <TableCell className="font-medium">{r.ownerName}</TableCell>
@@ -125,6 +132,8 @@ const TeacherAttendance = () => {
               </TableBody>
             </Table>
           )}
+          <Pagination currentPage={rowsPage} totalPages={totalRowsPages} onPageChange={setRowsPage}
+            itemsPerPage={rowsPerPage} onItemsPerPageChange={v => { setRowsPerPage(v); setRowsPage(1); }} />
         </CardContent>
       </Card>
     </div>

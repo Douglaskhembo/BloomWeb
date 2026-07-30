@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Download, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { BookOpen, Users, Award, BarChart3 } from "lucide-react";
+import Pagination from "@/utils/Pagination";
 
 const subjectData = [
   { subject: "Mathematics", grade: "Grade 5", students: 42, avgScore: 72, highest: 98, lowest: 35, passRate: 81, trend: "up" },
@@ -31,8 +33,14 @@ const rateColor = (rate: number) => {
 };
 
 const SubjectPerformancePage = () => {
+  const [subjectsPage, setSubjectsPage] = useState(1);
+  const [subjectsPerPage, setSubjectsPerPage] = useState(10);
+
   const overallAvg = Math.round(subjectData.reduce((a, b) => a + b.avgScore, 0) / subjectData.length);
   const overallPassRate = Math.round(subjectData.reduce((a, b) => a + b.passRate, 0) / subjectData.length);
+
+  const totalSubjectPages = Math.ceil(subjectData.length / subjectsPerPage);
+  const pagedSubjects = subjectData.slice((subjectsPage - 1) * subjectsPerPage, subjectsPage * subjectsPerPage);
 
   return (
     <div className="space-y-6">
@@ -90,7 +98,7 @@ const SubjectPerformancePage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {subjectData.map((s, i) => (
+              {pagedSubjects.map((s, i) => (
                 <TableRow key={i}>
                   <TableCell className="font-medium">{s.subject}</TableCell>
                   <TableCell><Badge variant="outline" className="text-xs">{s.grade}</Badge></TableCell>
@@ -104,6 +112,8 @@ const SubjectPerformancePage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={subjectsPage} totalPages={totalSubjectPages} onPageChange={setSubjectsPage}
+            itemsPerPage={subjectsPerPage} onItemsPerPageChange={v => { setSubjectsPerPage(v); setSubjectsPage(1); }} />
         </CardContent>
       </Card>
     </div>

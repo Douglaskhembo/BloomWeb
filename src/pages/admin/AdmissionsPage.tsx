@@ -12,7 +12,8 @@ import { Plus, FileText, Users, CheckCircle, Clock, ArrowRight, Upload, X, File,
 import StatCard from "@/components/dashboard/StatCard";
 import { useStudentContext, STAGE_LABELS } from "@/context/StudentContext";
 import { SchoolApi } from "@/services/api";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 const STAGE_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   APPLICATION_REVIEW: "secondary",
@@ -52,7 +53,7 @@ const AdmissionsPage = () => {
   }, []);
 
   const [form, setForm] = useState({
-    firstName: "", lastName: "", gender: "", dob: "",
+    firstName: "", lastName: "", gender: "", dob: "", birthCertificateNumber: "",
     grade: "", gradeLevelUuid: "", stream: "",
     parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "",
     address: "", medicalNotes: "", previousSchool: "", admissionType: "New",
@@ -63,7 +64,7 @@ const AdmissionsPage = () => {
   const selectedGradeStreams = grades.find((g) => g.uuid === form.gradeLevelUuid)?.streamNames ?? [];
 
   const resetForm = () => {
-    setForm({ firstName: "", lastName: "", gender: "", dob: "", grade: "", gradeLevelUuid: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
+    setForm({ firstName: "", lastName: "", gender: "", dob: "", birthCertificateNumber: "", grade: "", gradeLevelUuid: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
     setDocuments([]);
     setSelectedDocType("");
     setStep(1);
@@ -79,7 +80,7 @@ const AdmissionsPage = () => {
 
   const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.gender || !form.dob || !form.grade || !form.parentName || !form.parentPhone || (selectedGradeStreams.length > 0 && !form.stream)) {
-      toast.error("Please fill in all required fields");
+      Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true });
       return;
     }
     setSubmitting(true);
@@ -87,9 +88,9 @@ const AdmissionsPage = () => {
       await addApplication({ ...form, documents: documents.map(d => ({ name: d.name, type: d.type, size: d.size })) });
       setShowForm(false);
       resetForm();
-      toast.success(`Application for ${form.firstName} ${form.lastName} submitted`);
+      Swal.fire({ title: "Success", text: `Application for ${form.firstName} ${form.lastName} submitted`, icon: "success", showConfirmButton: true });
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Failed to submit application");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to submit application"), showConfirmButton: true });
     } finally {
       setSubmitting(false);
     }
@@ -101,12 +102,12 @@ const AdmissionsPage = () => {
     try {
       await updateApplicationStage(uuid, next);
       if (next === "ENROLLED") {
-        toast.success("Student enrolled and added to the Students register!");
+        Swal.fire({ title: "Success", text: "Student enrolled and added to the Students register!", icon: "success", showConfirmButton: true });
       } else {
-        toast.success(`Moved to "${STAGE_LABELS[next]}"`);
+        Swal.fire({ title: "Success", text: `Moved to "${STAGE_LABELS[next]}"`, icon: "success", showConfirmButton: true });
       }
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? "Failed to update stage");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update stage"), showConfirmButton: true });
     }
   };
 
@@ -173,6 +174,10 @@ const AdmissionsPage = () => {
                 <div className="space-y-2">
                   <Label>Date of Birth <span className="text-destructive">*</span></Label>
                   <Input type="date" value={form.dob} onChange={e => setForm({ ...form, dob: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Birth Certificate Number</Label>
+                  <Input value={form.birthCertificateNumber} onChange={e => setForm({ ...form, birthCertificateNumber: e.target.value })} placeholder="e.g. 12345678" />
                 </div>
                 {form.admissionType === "Transfer" && (
                   <div className="space-y-2">
@@ -258,17 +263,17 @@ const AdmissionsPage = () => {
                   </div>
                   <div>
                     <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" multiple onChange={handleFileUpload} />
-                    <Button variant="outline" onClick={() => { if (!selectedDocType) { toast.error("Select a document type first"); return; } fileInputRef.current?.click(); }}>
+                    <Button variant="outline" onClick={() => { if (!selectedDocType) { Swal.fire({ icon: "error", title: "Error", text: "Select a document type first", showConfirmButton: true }); return; } fileInputRef.current?.click(); }}>
                       <Upload className="w-4 h-4 mr-2" /> Choose File
                     </Button>
                   </div>
                 </div>
                 <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
-                  onClick={() => { if (!selectedDocType) { toast.error("Select a document type first"); return; } fileInputRef.current?.click(); }}
+                  onClick={() => { if (!selectedDocType) { Swal.fire({ icon: "error", title: "Error", text: "Select a document type first", showConfirmButton: true }); return; } fileInputRef.current?.click(); }}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => {
                     e.preventDefault();
-                    if (!selectedDocType) { toast.error("Select a document type first"); return; }
+                    if (!selectedDocType) { Swal.fire({ icon: "error", title: "Error", text: "Select a document type first", showConfirmButton: true }); return; }
                     const newDocs = Array.from(e.dataTransfer.files).map(file => ({ name: file.name, type: selectedDocType, size: file.size, file }));
                     setDocuments(prev => [...prev, ...newDocs]);
                   }}>
@@ -306,8 +311,8 @@ const AdmissionsPage = () => {
             <Button variant="outline" onClick={() => { setShowForm(false); resetForm(); }}>Cancel</Button>
             {step < 4 ? (
               <Button onClick={() => {
-                if (step === 1 && (!form.firstName || !form.lastName || !form.gender || !form.dob)) { toast.error("Please fill in all required fields"); return; }
-                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone || (selectedGradeStreams.length > 0 && !form.stream))) { toast.error("Please fill in all required fields"); return; }
+                if (step === 1 && (!form.firstName || !form.lastName || !form.gender || !form.dob)) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
+                if (step === 2 && (!form.grade || !form.parentName || !form.parentPhone || (selectedGradeStreams.length > 0 && !form.stream))) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
                 setStep(step + 1);
               }}>Next</Button>
             ) : (

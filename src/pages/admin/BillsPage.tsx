@@ -5,24 +5,26 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Receipt, DollarSign, CheckCircle, AlertCircle, Pencil, Trash2 } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import BillFormModal from "@/components/modal/BillFormModal";
 import { BillFormValues } from "@/components/forms/BillForm";
 import { BillApi, SupplierApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 const formatKES = (n: number) => `KES ${n.toLocaleString()}`;
 
 const emptyForm: BillFormValues = { supplierId: "", supplierName: "", description: "", amount: "", dueDate: "" };
 
 const BillsPage = () => {
-  const { toast } = useToast();
   const [bills, setBills] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<BillFormValues>(emptyForm);
+  const [billsPage, setBillsPage] = useState(1);
+  const [billsPerPage, setBillsPerPage] = useState(10);
 
   const load = () => {
     setLoading(true);
@@ -57,35 +59,35 @@ const BillsPage = () => {
     try {
       if (editingId !== null) {
         await BillApi.update(editingId, payload);
-        toast({ title: "Bill updated" });
+        Swal.fire({ title: "Success", text: "Bill updated", icon: "success", showConfirmButton: true });
       } else {
         await BillApi.create(payload);
-        toast({ title: "Bill added" });
+        Swal.fire({ title: "Success", text: "Bill added", icon: "success", showConfirmButton: true });
       }
       setOpen(false);
       load();
     } catch (err) {
-      toast({ title: "Failed to save bill", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to save bill", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleMarkPaid = async (id: number) => {
     try {
       await BillApi.markPaid(id);
-      toast({ title: "Bill marked as paid" });
+      Swal.fire({ title: "Success", text: "Bill marked as paid", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast({ title: "Failed to update bill", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to update bill", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
       await BillApi.delete(id);
-      toast({ title: "Bill deleted" });
+      Swal.fire({ title: "Success", text: "Bill deleted", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast({ title: "Failed to delete bill", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to delete bill", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -97,6 +99,9 @@ const BillsPage = () => {
   }, [bills]);
 
   const statusVariant = (status: string) => status === "PAID" ? "default" : status === "OVERDUE" ? "destructive" : "secondary";
+
+  const totalBillPages = Math.ceil(bills.length / billsPerPage);
+  const pagedBills = bills.slice((billsPage - 1) * billsPerPage, billsPage * billsPerPage);
 
   return (
     <div className="space-y-6">
@@ -124,6 +129,7 @@ const BillsPage = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading bills...</p>
           ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -139,7 +145,7 @@ const BillsPage = () => {
             <TableBody>
               {bills.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No bills recorded yet.</TableCell></TableRow>
-              ) : bills.map((b) => (
+              ) : pagedBills.map((b) => (
                 <TableRow key={b.id}>
                   <TableCell className="font-mono text-xs">BILL-{String(b.id).padStart(3, "0")}</TableCell>
                   <TableCell className="font-medium">{b.supplierName}</TableCell>
@@ -166,6 +172,9 @@ const BillsPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={billsPage} totalPages={totalBillPages} onPageChange={setBillsPage}
+            itemsPerPage={billsPerPage} onItemsPerPageChange={v => { setBillsPerPage(v); setBillsPage(1); }} />
+          </>
           )}
         </CardContent>
       </Card>

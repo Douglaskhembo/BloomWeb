@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Bus, MapPin, Users, AlertTriangle, Plus, UserPlus, Trash2, Search, Edit, X } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { TransportApi, StudentApi } from "@/services/api";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 const EMPTY_FORM = { name: "", driver: "", driverPhone: "", vehicle: "", capacity: "", fare: "", status: "ACTIVE", pickupPoints: [] as string[] };
 
@@ -31,6 +33,11 @@ const TransportPage = () => {
   const [selectedPickup, setSelectedPickup] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterRouteUuid, setFilterRouteUuid] = useState("all");
+
+  const [routesPage, setRoutesPage] = useState(1);
+  const [routesPerPage, setRoutesPerPage] = useState(10);
+  const [enrollmentsPage, setEnrollmentsPage] = useState(1);
+  const [enrollmentsPerPage, setEnrollmentsPerPage] = useState(10);
 
   const loadAll = () => {
     TransportApi.getRoutes().then(d => setRoutes(Array.isArray(d) ? d : []));
@@ -55,37 +62,37 @@ const TransportPage = () => {
   const addPickup = () => {
     const p = newPickup.trim();
     if (!p) return;
-    if (routeForm.pickupPoints.includes(p)) { toast.error("Pickup point already exists"); return; }
+    if (routeForm.pickupPoints.includes(p)) { Swal.fire({ icon: "error", title: "Error", text: "Pickup point already exists", showConfirmButton: true }); return; }
     setRouteForm(f => ({ ...f, pickupPoints: [...f.pickupPoints, p] }));
     setNewPickup("");
   };
 
   const handleSaveRoute = async () => {
-    if (!routeForm.name || !routeForm.driver || !routeForm.vehicle) { toast.error("Please fill in all required fields"); return; }
-    if (routeForm.pickupPoints.length === 0) { toast.error("Add at least one pickup point"); return; }
+    if (!routeForm.name || !routeForm.driver || !routeForm.vehicle) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
+    if (routeForm.pickupPoints.length === 0) { Swal.fire({ icon: "error", title: "Error", text: "Add at least one pickup point", showConfirmButton: true }); return; }
     const payload = { ...routeForm, capacity: Number(routeForm.capacity) || 0, fare: Number(routeForm.fare) || 0 };
     try {
       if (editingRoute) {
         await TransportApi.updateRoute(editingRoute.uuid, payload);
-        toast.success("Route updated");
+        Swal.fire({ title: "Success", text: "Route updated", icon: "success", showConfirmButton: true });
       } else {
         await TransportApi.createRoute(payload);
-        toast.success("Route created");
+        Swal.fire({ title: "Success", text: "Route created", icon: "success", showConfirmButton: true });
       }
       setRouteDialogOpen(false);
       loadAll();
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? "Failed to save route");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(e, "Failed to save route"), showConfirmButton: true });
     }
   };
 
   const handleDeleteRoute = async (uuid: string) => {
     try {
       await TransportApi.deleteRoute(uuid);
-      toast.success("Route deleted");
+      Swal.fire({ title: "Success", text: "Route deleted", icon: "success", showConfirmButton: true });
       loadAll();
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? "Cannot delete route with enrolled students");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(e, "Cannot delete route with enrolled students"), showConfirmButton: true });
     }
   };
 
@@ -96,21 +103,21 @@ const TransportPage = () => {
   const currentPickups = useMemo(() => routes.find(r => r.uuid === selectedRouteUuid)?.pickupPoints ?? [], [routes, selectedRouteUuid]);
 
   const handleEnroll = async () => {
-    if (!selectedStudentUuid || !selectedRouteUuid || !selectedPickup) { toast.error("Please fill all fields"); return; }
+    if (!selectedStudentUuid || !selectedRouteUuid || !selectedPickup) { Swal.fire({ icon: "error", title: "Error", text: "Please fill all fields", showConfirmButton: true }); return; }
     try {
       await TransportApi.enrollStudent({ studentUuid: selectedStudentUuid, routeUuid: selectedRouteUuid, pickupPoint: selectedPickup });
-      toast.success("Student enrolled to transport");
+      Swal.fire({ title: "Success", text: "Student enrolled to transport", icon: "success", showConfirmButton: true });
       setEnrollDialogOpen(false);
       setSelectedStudentUuid(""); setSelectedRouteUuid(""); setSelectedPickup("");
       loadAll();
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? "Failed to enroll student");
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(e, "Failed to enroll student"), showConfirmButton: true });
     }
   };
 
   const handleUnenroll = async (uuid: string) => {
     await TransportApi.unenrollStudent(uuid);
-    toast.success("Student removed from route");
+    Swal.fire({ title: "Success", text: "Student removed from route", icon: "success", showConfirmButton: true });
     loadAll();
   };
 
@@ -120,6 +127,12 @@ const TransportPage = () => {
     const matchSearch = !q || `${e.student?.firstName} ${e.student?.lastName} ${e.student?.admissionNumber}`.toLowerCase().includes(q);
     return matchRoute && matchSearch;
   }), [enrollments, filterRouteUuid, searchQuery]);
+
+  const totalRoutesPages = Math.ceil(routes.length / routesPerPage);
+  const pagedRoutes = routes.slice((routesPage - 1) * routesPerPage, routesPage * routesPerPage);
+
+  const totalEnrollmentsPages = Math.ceil(filteredEnrollments.length / enrollmentsPerPage);
+  const pagedEnrollments = filteredEnrollments.slice((enrollmentsPage - 1) * enrollmentsPerPage, enrollmentsPage * enrollmentsPerPage);
 
   return (
     <div className="space-y-6">
@@ -167,7 +180,7 @@ const TransportPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {routes.map(r => (
+                  {pagedRoutes.map(r => (
                     <TableRow key={r.uuid}>
                       <TableCell className="font-medium">{r.name}</TableCell>
                       <TableCell className="font-mono text-xs">{r.vehicle}</TableCell>
@@ -199,6 +212,8 @@ const TransportPage = () => {
                   {routes.length === 0 && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No routes yet.</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              <Pagination currentPage={routesPage} totalPages={totalRoutesPages} onPageChange={setRoutesPage}
+                itemsPerPage={routesPerPage} onItemsPerPageChange={v => { setRoutesPerPage(v); setRoutesPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -217,9 +232,9 @@ const TransportPage = () => {
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="Search by name or admission no..." className="pl-9" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  <Input placeholder="Search by name or admission no..." className="pl-9" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setEnrollmentsPage(1); }} />
                 </div>
-                <Select value={filterRouteUuid} onValueChange={setFilterRouteUuid}>
+                <Select value={filterRouteUuid} onValueChange={v => { setFilterRouteUuid(v); setEnrollmentsPage(1); }}>
                   <SelectTrigger className="w-full sm:w-[200px]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Routes</SelectItem>
@@ -239,7 +254,7 @@ const TransportPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEnrollments.map(e => (
+                  {pagedEnrollments.map(e => (
                     <TableRow key={e.uuid}>
                       <TableCell className="font-medium">{e.student?.firstName} {e.student?.lastName}</TableCell>
                       <TableCell className="text-muted-foreground">{e.student?.admissionNumber}</TableCell>
@@ -254,6 +269,8 @@ const TransportPage = () => {
                   {filteredEnrollments.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No enrolled students found.</TableCell></TableRow>}
                 </TableBody>
               </Table>
+              <Pagination currentPage={enrollmentsPage} totalPages={totalEnrollmentsPages} onPageChange={setEnrollmentsPage}
+                itemsPerPage={enrollmentsPerPage} onItemsPerPageChange={v => { setEnrollmentsPerPage(v); setEnrollmentsPage(1); }} />
             </CardContent>
           </Card>
         </TabsContent>

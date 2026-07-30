@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
@@ -6,42 +9,58 @@ interface PaginationProps {
   onItemsPerPageChange: (val: number) => void;
 }
 
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 50];
+
 const Pagination = ({ currentPage, totalPages, onPageChange, itemsPerPage, onItemsPerPageChange }: PaginationProps) => {
-  const pages = [...Array(totalPages).keys()].map(n => n + 1);
+  const pages = [...Array(Math.max(totalPages, 0)).keys()].map((n) => n + 1);
+
   return (
-    <div className="flex justify-between items-center mt-3">
-      <div>
-        <label className="text-sm">Items per page:&nbsp;</label>
-        <select
-          value={itemsPerPage}
-          onChange={e => onItemsPerPageChange(Number(e.target.value))}
-          className="inline-block border rounded px-2 py-1 text-sm"
-        >
-          {[5, 10, 15, 20, 50].map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+    <div className="flex flex-col gap-3 mt-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground">Items per page:</label>
+        <Select value={String(itemsPerPage)} onValueChange={(value) => onItemsPerPageChange(Number(value))}>
+          <SelectTrigger className="h-8 w-[80px] text-sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      <ul className="flex gap-1 list-none mb-0">
+      <ul className="flex flex-wrap items-center gap-1 list-none m-0 p-0">
         <li>
-          <button
-            className="px-3 py-1 border rounded text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3"
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage === 1}
-          >Previous</button>
+          >
+            Previous
+          </Button>
         </li>
-        {pages.map(n => (
+        {pages.map((n) => (
           <li key={n}>
-            <button
+            <Button
+              variant={n === currentPage ? "default" : "outline"}
+              size="sm"
+              className="h-8 w-8 px-0"
               onClick={() => onPageChange(n)}
-              className={`px-3 py-1 border rounded text-sm hover:bg-gray-100 ${n === currentPage ? "bg-blue-500 text-white" : ""}`}
-            >{n}</button>
+            >
+              {n}
+            </Button>
           </li>
         ))}
         <li>
-          <button
-            className="px-3 py-1 border rounded text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3"
             onClick={() => onPageChange(currentPage + 1)}
             disabled={currentPage === totalPages || totalPages === 0}
-          >Next</button>
+          >
+            Next
+          </Button>
         </li>
       </ul>
     </div>

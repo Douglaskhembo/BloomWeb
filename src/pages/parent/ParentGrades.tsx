@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import Pagination from "@/utils/Pagination";
 
 const grades = [
   { subject: "Mathematics", t1: 78, t2: 72, t3: 80, rubric: "Exceeding Expectations" },
@@ -14,6 +16,11 @@ const grades = [
 ];
 
 const ParentGrades = () => {
+  const [gradesPage, setGradesPage] = useState(1);
+  const [gradesPerPage, setGradesPerPage] = useState(10);
+  const totalGradesPages = Math.ceil(grades.length / gradesPerPage);
+  const pagedGrades = grades.slice((gradesPage - 1) * gradesPerPage, gradesPage * gradesPerPage);
+
   return (
     <div className="space-y-6">
       <div>
@@ -38,7 +45,7 @@ const ParentGrades = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {grades.map((g) => (
+              {pagedGrades.map((g) => (
                 <TableRow key={g.subject}>
                   <TableCell className="font-medium">{g.subject}</TableCell>
                   <TableCell className="text-center font-semibold">{g.t1}%</TableCell>
@@ -53,6 +60,8 @@ const ParentGrades = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={gradesPage} totalPages={totalGradesPages} onPageChange={setGradesPage}
+            itemsPerPage={gradesPerPage} onItemsPerPageChange={v => { setGradesPerPage(v); setGradesPage(1); }} />
         </CardContent>
       </Card>
     </div>

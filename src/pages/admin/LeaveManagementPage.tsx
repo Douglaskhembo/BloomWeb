@@ -12,7 +12,8 @@ import { Plus, CalendarDays, CheckCircle, Clock, XCircle } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { LeaveApi, StaffApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const currentMonth = () => new Date().toISOString().slice(0, 7);
@@ -29,6 +30,9 @@ const LeaveManagementPage = () => {
 
   const [rejectFor, setRejectFor] = useState<any | null>(null);
   const [rejectNote, setRejectNote] = useState("");
+
+  const [requestsPage, setRequestsPage] = useState(1);
+  const [requestsPerPage, setRequestsPerPage] = useState(10);
 
   const load = () => {
     setLoading(true);
@@ -53,9 +57,9 @@ const LeaveManagementPage = () => {
 
   const handleSubmit = async () => {
     const staff = allStaff.find((s) => s.uuid === form.staffUuid);
-    if (!staff) { toast.error("Select a staff member"); return; }
-    if (!form.leaveTypeId) { toast.error("Select a leave type"); return; }
-    if (!form.fromDate || !form.toDate) { toast.error("From and To dates are required"); return; }
+    if (!staff) { Swal.fire({ icon: "error", title: "Error", text: "Select a staff member", showConfirmButton: true }); return; }
+    if (!form.leaveTypeId) { Swal.fire({ icon: "error", title: "Error", text: "Select a leave type", showConfirmButton: true }); return; }
+    if (!form.fromDate || !form.toDate) { Swal.fire({ icon: "error", title: "Error", text: "From and To dates are required", showConfirmButton: true }); return; }
     try {
       await LeaveApi.createRequest({
         staffId: staff.staffId,
@@ -65,21 +69,21 @@ const LeaveManagementPage = () => {
         toDate: form.toDate,
         reason: form.reason,
       });
-      toast.success("Leave request created");
+      Swal.fire({ title: "Success", text: "Leave request created", icon: "success", showConfirmButton: true });
       setAddOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to create leave request"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to create leave request"), showConfirmButton: true });
     }
   };
 
   const handleApprove = async (id: number) => {
     try {
       await LeaveApi.reviewRequest(id, "APPROVED");
-      toast.success("Leave approved");
+      Swal.fire({ title: "Success", text: "Leave approved", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to approve leave"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to approve leave"), showConfirmButton: true });
     }
   };
 
@@ -87,12 +91,12 @@ const LeaveManagementPage = () => {
     if (!rejectFor) return;
     try {
       await LeaveApi.reviewRequest(rejectFor.id, "REJECTED", rejectNote);
-      toast.success("Leave rejected");
+      Swal.fire({ title: "Success", text: "Leave rejected", icon: "success", showConfirmButton: true });
       setRejectFor(null);
       setRejectNote("");
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to reject leave"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to reject leave"), showConfirmButton: true });
     }
   };
 
@@ -100,6 +104,9 @@ const LeaveManagementPage = () => {
   const rejected = requests.filter((r) => r.status === "REJECTED");
   const approvedThisMonth = requests.filter((r) => r.status === "APPROVED" && r.fromDate?.slice(0, 7) === currentMonth());
   const onLeaveToday = requests.filter((r) => r.status === "APPROVED" && r.fromDate <= todayIso() && r.toDate >= todayIso());
+
+  const totalRequestPages = Math.ceil(requests.length / requestsPerPage);
+  const pagedRequests = requests.slice((requestsPage - 1) * requestsPerPage, requestsPage * requestsPerPage);
 
   return (
     <div className="space-y-6">
@@ -127,6 +134,7 @@ const LeaveManagementPage = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
           ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -142,9 +150,9 @@ const LeaveManagementPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {requests.length === 0 ? (
+              {pagedRequests.length === 0 ? (
                 <TableRow><TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-8">No leave requests yet.</TableCell></TableRow>
-              ) : requests.map((lr) => (
+              ) : pagedRequests.map((lr) => (
                 <TableRow key={lr.uuid}>
                   <TableCell className="font-mono text-xs">{lr.leaveId}</TableCell>
                   <TableCell className="font-medium">{lr.staffName}</TableCell>
@@ -175,6 +183,9 @@ const LeaveManagementPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={requestsPage} totalPages={totalRequestPages} onPageChange={setRequestsPage}
+            itemsPerPage={requestsPerPage} onItemsPerPageChange={v => { setRequestsPerPage(v); setRequestsPage(1); }} />
+          </>
           )}
         </CardContent>
       </Card>

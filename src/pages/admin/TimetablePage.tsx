@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Calendar, Clock, Plus, Pencil, Trash2, ArrowLeft, Save, Settings } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 const grades = ["PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9"];
 const streamOptions = ["A", "B", "C"];
@@ -183,16 +184,21 @@ const TimetablePage = () => {
   const [newSlotEnd, setNewSlotEnd] = useState("");
   const [newSlotIsBreak, setNewSlotIsBreak] = useState(false);
   const [newSlotBreakLabel, setNewSlotBreakLabel] = useState("BREAK");
+  const [timeSlotsPage, setTimeSlotsPage] = useState(1);
+  const [timeSlotsPerPage, setTimeSlotsPerPage] = useState(10);
 
   const currentTimetable = timetables.find(t => t.grade === selectedGrade && t.stream === selectedStream);
 
+  const totalTimeSlotsPages = Math.ceil((currentTimetable?.timeSlots.length ?? 0) / timeSlotsPerPage);
+  const pagedTimeSlots = (currentTimetable?.timeSlots ?? []).slice((timeSlotsPage - 1) * timeSlotsPerPage, timeSlotsPage * timeSlotsPerPage);
+
   const handleCreateTimetable = () => {
     if (!newGrade || !newStream) {
-      toast.error("Please select grade and stream");
+      Swal.fire({ icon: "error", title: "Error", text: "Please select grade and stream", showConfirmButton: true });
       return;
     }
     if (timetables.find(t => t.grade === newGrade && t.stream === newStream)) {
-      toast.error("Timetable for this grade and stream already exists");
+      Swal.fire({ icon: "error", title: "Error", text: "Timetable for this grade and stream already exists", showConfirmButton: true });
       return;
     }
 
@@ -222,7 +228,7 @@ const TimetablePage = () => {
     setShowCreateForm(false);
     setNewGrade("");
     setNewStream("");
-    toast.success(`Timetable created for ${newGrade} ${newStream}`);
+    Swal.fire({ title: "Success", text: `Timetable created for ${newGrade} ${newStream}`, icon: "success", showConfirmButton: true });
   };
 
   const handleOpenSlotEdit = (day: string, time: string) => {
@@ -236,7 +242,7 @@ const TimetablePage = () => {
 
   const handleAddTimeSlot = () => {
     if (!newSlotStart || !newSlotEnd || !currentTimetable) {
-      toast.error("Please enter start and end times");
+      Swal.fire({ icon: "error", title: "Error", text: "Please enter start and end times", showConfirmButton: true });
       return;
     }
     const fmt = (t: string) => {
@@ -246,11 +252,11 @@ const TimetablePage = () => {
     };
     const label = `${fmt(newSlotStart)} - ${fmt(newSlotEnd)}`;
     if (!editingSlotLabel && currentTimetable.timeSlots.find(ts => ts.label === label)) {
-      toast.error("This time slot already exists");
+      Swal.fire({ icon: "error", title: "Error", text: "This time slot already exists", showConfirmButton: true });
       return;
     }
     if (editingSlotLabel && editingSlotLabel !== label && currentTimetable.timeSlots.find(ts => ts.label === label)) {
-      toast.error("This time slot already exists");
+      Swal.fire({ icon: "error", title: "Error", text: "This time slot already exists", showConfirmButton: true });
       return;
     }
     const newTs: TimeSlotDef = {
@@ -289,7 +295,7 @@ const TimetablePage = () => {
     setNewSlotEnd("");
     setNewSlotIsBreak(false);
     setNewSlotBreakLabel("BREAK");
-    toast.success(editingSlotLabel ? "Time slot updated" : "Time slot added");
+    Swal.fire({ title: "Success", text: editingSlotLabel ? "Time slot updated" : "Time slot added", icon: "success", showConfirmButton: true });
   };
 
   const handleEditTimeSlot = (ts: TimeSlotDef) => {
@@ -318,7 +324,7 @@ const TimetablePage = () => {
       });
       return { ...t, timeSlots: t.timeSlots.filter(ts => ts.label !== label), slots: updatedSlots };
     }));
-    toast.success("Time slot removed");
+    Swal.fire({ title: "Success", text: "Time slot removed", icon: "success", showConfirmButton: true });
   };
 
   const handleSaveSlot = () => {
@@ -338,7 +344,7 @@ const TimetablePage = () => {
     });
     setTimetables(updated);
     setEditSlot(null);
-    toast.success("Timetable slot updated");
+    Swal.fire({ title: "Success", text: "Timetable slot updated", icon: "success", showConfirmButton: true });
   };
 
   const handleDeleteTimetable = () => {
@@ -349,7 +355,7 @@ const TimetablePage = () => {
       setSelectedGrade(remaining[0].grade);
       setSelectedStream(remaining[0].stream);
     }
-    toast.success("Timetable deleted");
+    Swal.fire({ title: "Success", text: "Timetable deleted", icon: "success", showConfirmButton: true });
   };
 
   return (
@@ -370,7 +376,7 @@ const TimetablePage = () => {
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               <Label className="text-sm font-medium whitespace-nowrap">Grade:</Label>
-              <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+              <Select value={selectedGrade} onValueChange={v => { setSelectedGrade(v); setTimeSlotsPage(1); }}>
                 <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {[...new Set(timetables.map(t => t.grade))].map(g => (
@@ -381,7 +387,7 @@ const TimetablePage = () => {
             </div>
             <div className="flex items-center gap-2">
               <Label className="text-sm font-medium whitespace-nowrap">Stream:</Label>
-              <Select value={selectedStream} onValueChange={setSelectedStream}>
+              <Select value={selectedStream} onValueChange={v => { setSelectedStream(v); setTimeSlotsPage(1); }}>
                 <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {[...new Set(timetables.filter(t => t.grade === selectedGrade).map(t => t.stream))].map(s => (
@@ -495,7 +501,7 @@ const TimetablePage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {currentTimetable.timeSlots.map((ts) => (
+                    {pagedTimeSlots.map((ts) => (
                       <TableRow key={ts.label}>
                         <TableCell className="font-mono text-sm">{ts.label}</TableCell>
                         <TableCell>
@@ -519,6 +525,8 @@ const TimetablePage = () => {
                     ))}
                   </TableBody>
                 </Table>
+                <Pagination currentPage={timeSlotsPage} totalPages={totalTimeSlotsPages} onPageChange={setTimeSlotsPage}
+                  itemsPerPage={timeSlotsPerPage} onItemsPerPageChange={v => { setTimeSlotsPerPage(v); setTimeSlotsPage(1); }} />
               </TabsContent>
             </Tabs>
           </CardContent>

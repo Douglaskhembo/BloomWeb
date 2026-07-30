@@ -7,6 +7,7 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import AddGradeModal from "@/components/modals/AddGradeModal";
 import { SchoolApi } from "@/services/api";
 import { GradeFormValue } from "@/types/types";
+import Pagination from "@/utils/Pagination";
 
 interface GradeLevel {
   uuid: string; name: string; displayOrder: number; streams: number; streamNames: string[];
@@ -28,6 +29,8 @@ const GradeLevelsPage = () => {
   const [grades, setGrades] = useState<GradeLevel[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<GradeLevel | null>(null);
+  const [gradesPage, setGradesPage] = useState(1);
+  const [gradesPerPage, setGradesPerPage] = useState(10);
 
   const load = () => SchoolApi.getGradeLevels().then(d => setGrades((Array.isArray(d) ? d : []).map(toGradeLevel)));
   useEffect(() => { load(); }, []);
@@ -51,6 +54,9 @@ const GradeLevelsPage = () => {
     await SchoolApi.deleteGradeLevel(uuid);
     load();
   };
+
+  const totalGradesPages = Math.ceil(grades.length / gradesPerPage);
+  const pagedGrades = grades.slice((gradesPage - 1) * gradesPerPage, gradesPage * gradesPerPage);
 
   return (
     <Card>
@@ -76,7 +82,7 @@ const GradeLevelsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {grades.map((g) => (
+            {pagedGrades.map((g) => (
               <TableRow key={g.uuid}>
                 <TableCell className="text-muted-foreground">{g.displayOrder}</TableCell>
                 <TableCell className="font-medium">{g.name}</TableCell>
@@ -120,6 +126,8 @@ const GradeLevelsPage = () => {
             )}
           </TableBody>
         </Table>
+        <Pagination currentPage={gradesPage} totalPages={totalGradesPages} onPageChange={setGradesPage}
+          itemsPerPage={gradesPerPage} onItemsPerPageChange={v => { setGradesPerPage(v); setGradesPage(1); }} />
       </CardContent>
 
       <AddGradeModal

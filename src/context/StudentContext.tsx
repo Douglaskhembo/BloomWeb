@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { AdmissionApi, StudentApi } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 
 export interface StudentDocument {
   name: string;
@@ -23,6 +23,7 @@ export interface Student {
   parentPhone: string;
   parentEmail: string;
   dateOfBirth: string;
+  birthCertificateNumber: string;
   address: string;
   medicalNotes: string;
   documents: StudentDocument[];
@@ -42,6 +43,7 @@ export interface Application {
   parentPhone: string;
   parentEmail: string;
   dateOfBirth: string;
+  birthCertificateNumber: string;
   address: string;
   medicalNotes: string;
   stage: string;
@@ -103,7 +105,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       const data = await StudentApi.getAll();
       setStudents(Array.isArray(data) ? data : []);
     } catch {
-      toast.error("Failed to load students");
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to load students", showConfirmButton: true });
     } finally {
       setLoadingStudents(false);
     }
@@ -115,7 +117,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       const data = await AdmissionApi.getAll();
       setApplications(Array.isArray(data) ? data : []);
     } catch {
-      toast.error("Failed to load applications");
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to load applications", showConfirmButton: true });
     } finally {
       setLoadingApplications(false);
     }
@@ -133,6 +135,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       lastName: app.lastName,
       gender: app.gender,
       dateOfBirth: app.dob,
+      birthCertificateNumber: app.birthCertificateNumber || null,
       grade: app.grade,
       gradeLevelUuid: app.gradeLevelUuid || null,
       stream: app.stream || null,
@@ -162,6 +165,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       lastName: data.lastName ?? s.lastName,
       gender: data.gender ?? s.gender,
       dateOfBirth: data.dateOfBirth ?? s.dateOfBirth,
+      birthCertificateNumber: data.birthCertificateNumber ?? s.birthCertificateNumber,
       grade: data.grade ?? s.grade,
       stream: data.stream ?? s.stream,
       parentName: data.parentName ?? s.parentName,

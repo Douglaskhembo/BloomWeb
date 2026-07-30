@@ -2,10 +2,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 export interface FeeItemFormValues {
   name: string;
-  grade: string;
+  grades: string[];
   amount: number;
   term: string;
   active: boolean;
@@ -14,9 +15,10 @@ export interface FeeItemFormValues {
 interface Props {
   value: FeeItemFormValues;
   onChange: (v: FeeItemFormValues) => void;
+  gradeOptions: string[];
 }
 
-const FeeItemForm = ({ value, onChange }: Props) => (
+const FeeItemForm = ({ value, onChange, gradeOptions }: Props) => (
   <div className="space-y-4">
     <div className="space-y-2">
       <Label>Fee Item Name</Label>
@@ -24,7 +26,14 @@ const FeeItemForm = ({ value, onChange }: Props) => (
     </div>
     <div className="space-y-2">
       <Label>Applicable Grades</Label>
-      <Input value={value.grade} onChange={(e) => onChange({ ...value, grade: e.target.value })} placeholder="e.g. All Grades" />
+      <MultiSelect
+        options={gradeOptions}
+        selected={value.grades}
+        onChange={(grades) => onChange({ ...value, grades })}
+        placeholder="Select grade(s)..."
+        searchPlaceholder="Search grades..."
+        allLabel="All Grades"
+      />
     </div>
     <div className="space-y-2">
       <Label>Amount (KES)</Label>

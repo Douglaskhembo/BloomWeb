@@ -6,11 +6,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Trash2, ArrowLeft, FileText } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import LeaveTypeFormModal from "@/components/modal/LeaveTypeFormModal";
 import { LeaveTypeFormValues } from "@/components/forms/LeaveTypeForm";
 import { LeaveApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface LeaveType {
   id: number;
@@ -47,6 +48,8 @@ const LeaveTypesSetupPage = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<LeaveType | null>(null);
   const [form, setForm] = useState<LeaveTypeFormValues>(emptyForm);
+  const [leaveTypesPage, setLeaveTypesPage] = useState(1);
+  const [leaveTypesPerPage, setLeaveTypesPerPage] = useState(10);
 
   const load = () => {
     setLoading(true);
@@ -64,7 +67,7 @@ const LeaveTypesSetupPage = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.days) { toast.error("Please fill in all required fields"); return; }
+    if (!form.name.trim() || !form.days) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
     const payload = {
       name: form.name,
       maxDaysPerYear: Number(form.days),
@@ -75,15 +78,15 @@ const LeaveTypesSetupPage = () => {
     try {
       if (editing) {
         await LeaveApi.updateType(editing.id, payload);
-        toast.success("Leave type updated");
+        Swal.fire({ title: "Success", text: "Leave type updated", icon: "success", showConfirmButton: true });
       } else {
         await LeaveApi.createType(payload);
-        toast.success("Leave type added");
+        Swal.fire({ title: "Success", text: "Leave type added", icon: "success", showConfirmButton: true });
       }
       setDialogOpen(false);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save leave type"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save leave type"), showConfirmButton: true });
     }
   };
 
@@ -92,19 +95,22 @@ const LeaveTypesSetupPage = () => {
       await LeaveApi.toggleTypeStatus(id);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to update leave type status"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update leave type status"), showConfirmButton: true });
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
       await LeaveApi.deleteType(id);
-      toast.success("Leave type deleted");
+      Swal.fire({ title: "Success", text: "Leave type deleted", icon: "success", showConfirmButton: true });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete leave type"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete leave type"), showConfirmButton: true });
     }
   };
+
+  const totalLeaveTypePages = Math.ceil(leaveTypes.length / leaveTypesPerPage);
+  const pagedLeaveTypes = leaveTypes.slice((leaveTypesPage - 1) * leaveTypesPerPage, leaveTypesPage * leaveTypesPerPage);
 
   return (
     <div className="space-y-6">
@@ -130,6 +136,7 @@ const LeaveTypesSetupPage = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading leave types...</p>
           ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -143,9 +150,9 @@ const LeaveTypesSetupPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {leaveTypes.length === 0 ? (
+              {pagedLeaveTypes.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No leave types configured yet.</TableCell></TableRow>
-              ) : leaveTypes.map((lt) => (
+              ) : pagedLeaveTypes.map((lt) => (
                 <TableRow key={lt.id}>
                   <TableCell className="font-medium">{lt.name}</TableCell>
                   <TableCell className="text-center">{lt.days}</TableCell>
@@ -185,6 +192,9 @@ const LeaveTypesSetupPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={leaveTypesPage} totalPages={totalLeaveTypePages} onPageChange={setLeaveTypesPage}
+            itemsPerPage={leaveTypesPerPage} onItemsPerPageChange={v => { setLeaveTypesPerPage(v); setLeaveTypesPage(1); }} />
+          </>
           )}
         </CardContent>
       </Card>

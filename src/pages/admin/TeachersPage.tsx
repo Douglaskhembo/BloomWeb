@@ -5,13 +5,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Search, Plus, Download, Filter, Users, GraduationCap, UserCheck, UserX, Eye, Pencil, Trash2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import StatCard from "@/components/dashboard/StatCard";
 import StaffViewModal from "@/components/modal/StaffViewModal";
 import type { StaffMember } from "@/components/modal/StaffViewModal";
 import StaffFormModal from "@/components/modal/StaffFormModal";
 import { emptyStaff, StaffFormData } from "@/components/forms/StaffForm";
-import { StaffApi } from "@/services/api";
+import { StaffApi, SubjectApi, StaffRoleApi } from "@/services/api";
+import Pagination from "@/utils/Pagination";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
+
+interface SubjectOption { uuid: string; name: string; active: boolean; }
+interface StaffRoleOption { uuid: string; name: string; active: boolean; }
 
 const STATUS_LABELS: Record<string, string> = { ACTIVE: "Active", ON_LEAVE: "On Leave", RESIGNED: "Resigned", SUSPENDED: "Suspended" };
 const STATUS_BADGE: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -34,7 +39,8 @@ const toStaffMember = (s: any): StaffMember => ({
   staffType: s.staffType ?? "",
   employmentType: s.employmentType ?? "",
   contractPeriodMonths: s.contractPeriodMonths ?? null,
-  subject: s.subject ?? "",
+  subjects: (s.subjects ?? []).map((sub: any) => sub.name),
+  staffRole: s.staffRole?.name ?? "",
   grade: s.grade ?? "",
   qualification: s.qualification ?? "",
   experience: s.experience ?? "",
@@ -46,7 +52,7 @@ const toStaffMember = (s: any): StaffMember => ({
   documents: s.documents ?? [],
 });
 
-const toRequest = (data: StaffFormData) => ({
+const toRequest = (data: StaffFormData, subjects: SubjectOption[], staffRoles: StaffRoleOption[]) => ({
   firstName: data.firstName,
   lastName: data.lastName,
   gender: data.gender || null,
@@ -59,7 +65,10 @@ const toRequest = (data: StaffFormData) => ({
   staffType: data.staffType || null,
   employmentType: data.employmentType || null,
   contractPeriodMonths: data.contractPeriodMonths ?? null,
-  subject: data.subject || null,
+  subjectUuids: data.subjects
+    .map((name) => subjects.find((s) => s.name === name)?.uuid)
+    .filter((uuid): uuid is string => Boolean(uuid)),
+  staffRoleUuid: staffRoles.find((r) => r.name === data.staffRole)?.uuid ?? null,
   grade: data.grade || null,
   qualification: data.qualification || null,
   experience: data.experience || null,
@@ -70,7 +79,6 @@ const toRequest = (data: StaffFormData) => ({
 });
 
 const TeachersPage = () => {
-  const { toast } = useToast();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -79,6 +87,10 @@ const TeachersPage = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [formData, setFormData] = useState<StaffFormData>(emptyStaff);
+  const [subjects, setSubjects] = useState<SubjectOption[]>([]);
+  const [staffRoles, setStaffRoles] = useState<StaffRoleOption[]>([]);
+  const [staffPage, setStaffPage] = useState(1);
+  const [staffPerPage, setStaffPerPage] = useState(10);
 
   const loadStaff = async () => {
     setLoading(true);
@@ -92,11 +104,21 @@ const TeachersPage = () => {
     }
   };
 
-  useEffect(() => { loadStaff(); }, []);
+  useEffect(() => {
+    loadStaff();
+    SubjectApi.getAll().then((data) => setSubjects(data.map((s: any) => ({ uuid: s.uuid, name: s.name, active: s.active }))));
+    StaffRoleApi.getAll().then((data) => setStaffRoles(data.map((r: any) => ({ uuid: r.uuid, name: r.name, active: r.active }))));
+  }, []);
+
+  const subjectOptions = subjects.filter((s) => s.active).map((s) => s.name);
+  const staffRoleOptions = staffRoles.filter((r) => r.active).map((r) => r.name);
 
   const filteredStaff = staff.filter(s =>
-    `${s.firstName} ${s.lastName} ${s.staffId} ${s.subject} ${s.staffType}`.toLowerCase().includes(search.toLowerCase())
+    `${s.firstName} ${s.lastName} ${s.staffId} ${s.subjects.join(" ")} ${s.staffRole} ${s.staffType}`.toLowerCase().includes(search.toLowerCase())
   );
+
+  const totalStaffPages = Math.ceil(filteredStaff.length / staffPerPage);
+  const pagedStaff = filteredStaff.slice((staffPage - 1) * staffPerPage, staffPage * staffPerPage);
 
   const stats = {
     total: staff.length,
@@ -126,35 +148,35 @@ const TeachersPage = () => {
     try {
       await StaffApi.delete(s.uuid);
       setStaff(prev => prev.filter(x => x.uuid !== s.uuid));
-      toast({ title: "Staff removed", description: `${s.firstName} ${s.lastName} has been removed.` });
+      Swal.fire({ title: "Staff removed", text: `${s.firstName} ${s.lastName} has been removed.`, icon: "success", showConfirmButton: true });
     } catch (err: any) {
-      toast({ title: "Error", description: err?.response?.data?.message ?? "Failed to delete staff", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to delete staff"), showConfirmButton: true });
     }
   };
 
   const handleSubmit = async () => {
     if (!formData.firstName || !formData.lastName || !formData.phone || !formData.staffType || !formData.employmentType ||
       (formData.staffType === "TEACHING" && !formData.practiceNumber)) {
-      toast({ title: "Missing fields", description: "Please fill in all required fields.", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Missing fields", text: "Please fill in all required fields.", showConfirmButton: true });
       return;
     }
     if ((formData.employmentType === "CONTRACT" || formData.employmentType === "INTERN") && !formData.contractPeriodMonths) {
-      toast({ title: "Missing fields", description: "Please enter the contract period in months.", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Missing fields", text: "Please enter the contract period in months.", showConfirmButton: true });
       return;
     }
     try {
       if (isEditing && selectedStaff) {
-        const updated = await StaffApi.update(selectedStaff.uuid, toRequest(formData));
+        const updated = await StaffApi.update(selectedStaff.uuid, toRequest(formData, subjects, staffRoles));
         setStaff(prev => prev.map(s => s.uuid === selectedStaff.uuid ? toStaffMember(updated) : s));
-        toast({ title: "Staff updated", description: `${formData.firstName} ${formData.lastName} has been updated.` });
+        Swal.fire({ title: "Staff updated", text: `${formData.firstName} ${formData.lastName} has been updated.`, icon: "success", showConfirmButton: true });
       } else {
-        const created = await StaffApi.create(toRequest(formData));
+        const created = await StaffApi.create(toRequest(formData, subjects, staffRoles));
         setStaff(prev => [...prev, toStaffMember(created)]);
-        toast({ title: "Staff added", description: `${formData.firstName} ${formData.lastName} has been added.` });
+        Swal.fire({ title: "Staff added", text: `${formData.firstName} ${formData.lastName} has been added.`, icon: "success", showConfirmButton: true });
       }
       setDialogOpen(false);
     } catch (err: any) {
-      toast({ title: "Error", description: err?.response?.data?.message ?? "Failed to save staff", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save staff"), showConfirmButton: true });
     }
   };
 
@@ -163,9 +185,9 @@ const TeachersPage = () => {
       const updated = await StaffApi.updateStatus(s.uuid, newStatus);
       setStaff(prev => prev.map(x => x.uuid === s.uuid ? toStaffMember(updated) : x));
       setSelectedStaff(prev => prev?.uuid === s.uuid ? toStaffMember(updated) : prev);
-      toast({ title: "Status updated", description: `${s.firstName} ${s.lastName} is now ${STATUS_LABELS[newStatus] ?? newStatus}.` });
+      Swal.fire({ title: "Status updated", text: `${s.firstName} ${s.lastName} is now ${STATUS_LABELS[newStatus] ?? newStatus}.`, icon: "success", showConfirmButton: true });
     } catch (err: any) {
-      toast({ title: "Error", description: err?.response?.data?.message ?? "Failed to update status", variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to update status"), showConfirmButton: true });
     }
   };
 
@@ -194,7 +216,7 @@ const TeachersPage = () => {
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search by name, subject, ID..." className="pl-10" value={search} onChange={e => setSearch(e.target.value)} />
+              <Input placeholder="Search by name, subject, ID..." className="pl-10" value={search} onChange={e => { setSearch(e.target.value); setStaffPage(1); }} />
             </div>
             <Button variant="outline" size="sm"><Filter className="w-4 h-4 mr-1" /> Filters</Button>
           </div>
@@ -210,7 +232,8 @@ const TeachersPage = () => {
                   <TableHead>Name</TableHead>
                   <TableHead>Staff Type</TableHead>
                   <TableHead>Employment</TableHead>
-                  <TableHead>Subject</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Subjects</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead>Status</TableHead>
@@ -218,15 +241,16 @@ const TeachersPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredStaff.length === 0 ? (
-                  <TableRow><TableCell colSpan={9} className="text-center text-sm text-muted-foreground py-8">No staff found</TableCell></TableRow>
-                ) : filteredStaff.map(s => (
+                {pagedStaff.length === 0 ? (
+                  <TableRow><TableCell colSpan={10} className="text-center text-sm text-muted-foreground py-8">No staff found</TableCell></TableRow>
+                ) : pagedStaff.map(s => (
                   <TableRow key={s.uuid}>
                     <TableCell className="font-mono text-xs">{s.staffId ?? s.uuid?.slice(0, 8) ?? "—"}</TableCell>
                     <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
                     <TableCell><Badge variant="outline" className="text-[10px]">{STAFF_TYPE_LABELS[s.staffType] ?? s.staffType}</Badge></TableCell>
                     <TableCell className="text-xs">{s.employmentType}{s.contractPeriodMonths ? ` (${s.contractPeriodMonths}mo)` : ""}</TableCell>
-                    <TableCell>{s.subject || "—"}</TableCell>
+                    <TableCell className="text-xs">{s.staffRole || "—"}</TableCell>
+                    <TableCell className="text-xs">{s.subjects.length > 0 ? s.subjects.join(", ") : "—"}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{s.phone}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{s.joined || "—"}</TableCell>
                     <TableCell>
@@ -246,6 +270,8 @@ const TeachersPage = () => {
               </TableBody>
             </Table>
           )}
+          <Pagination currentPage={staffPage} totalPages={totalStaffPages} onPageChange={setStaffPage}
+            itemsPerPage={staffPerPage} onItemsPerPageChange={v => { setStaffPerPage(v); setStaffPage(1); }} />
         </CardContent>
       </Card>
 
@@ -265,6 +291,8 @@ const TeachersPage = () => {
         onChange={setFormData}
         onSubmit={handleSubmit}
         isEditing={isEditing}
+        subjectOptions={subjectOptions}
+        staffRoleOptions={staffRoleOptions}
       />
     </div>
   );

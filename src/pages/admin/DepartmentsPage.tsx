@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Network, Plus, Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import AddDepartmentModal, { DepartmentFormValue } from "@/components/modals/AddDepartmentModal";
 import { SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface Department {
   uuid: string;
@@ -21,6 +22,8 @@ const DepartmentsPage = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Department | null>(null);
+  const [departmentsPage, setDepartmentsPage] = useState(1);
+  const [departmentsPerPage, setDepartmentsPerPage] = useState(10);
 
   const load = () => SchoolApi.getDepartments().then(d => setDepartments(Array.isArray(d) ? d : []));
   useEffect(() => { load(); }, []);
@@ -33,10 +36,20 @@ const DepartmentsPage = () => {
         await SchoolApi.createDepartment(v);
       }
       setEditing(null);
-      toast.success(editing ? "Department updated" : "Department created");
+      Swal.fire({
+        title: "Success",
+        text: editing ? "Department updated" : "Department created",
+        icon: "success",
+        showConfirmButton: true,
+      });
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save department"));
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getBackendErrorMessage(err, "Failed to save department"),
+        showConfirmButton: true,
+      });
     }
   };
 
@@ -45,7 +58,12 @@ const DepartmentsPage = () => {
       await SchoolApi.toggleDepartmentStatus(uuid);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to update department status"));
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getBackendErrorMessage(err, "Failed to update department status"),
+        showConfirmButton: true,
+      });
     }
   };
 
@@ -54,9 +72,17 @@ const DepartmentsPage = () => {
       await SchoolApi.deleteDepartment(uuid);
       load();
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to delete department"));
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getBackendErrorMessage(err, "Failed to delete department"),
+        showConfirmButton: true,
+      });
     }
   };
+
+  const totalDepartmentPages = Math.ceil(departments.length / departmentsPerPage);
+  const pagedDepartments = departments.slice((departmentsPage - 1) * departmentsPerPage, departmentsPage * departmentsPerPage);
 
   return (
     <Card>
@@ -83,7 +109,7 @@ const DepartmentsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {departments.map((d) => {
+            {pagedDepartments.map((d) => {
               const active = d.status === "ACTIVE";
               return (
               <TableRow key={d.uuid}>
@@ -114,6 +140,8 @@ const DepartmentsPage = () => {
             )}
           </TableBody>
         </Table>
+        <Pagination currentPage={departmentsPage} totalPages={totalDepartmentPages} onPageChange={setDepartmentsPage}
+          itemsPerPage={departmentsPerPage} onItemsPerPageChange={v => { setDepartmentsPerPage(v); setDepartmentsPage(1); }} />
       </CardContent>
 
       <AddDepartmentModal

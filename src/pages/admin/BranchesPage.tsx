@@ -7,6 +7,7 @@ import { Building2, ArrowLeft, Plus, Pencil, Trash2 } from "lucide-react";
 import AddBranchModal, { BranchFormValue } from "@/components/modals/AddBranchModal";
 import AssignItemsModal from "@/components/modals/AssignItemsModal";
 import { SchoolApi } from "@/services/api";
+import Pagination from "@/utils/Pagination";
 
 interface Branch {
   uuid: string; name: string; code: string; location: string; phone: string; active: boolean;
@@ -24,6 +25,12 @@ const BranchesPage = () => {
   const [editing, setEditing] = useState<Branch | null>(null);
   const [assignDeptOpen, setAssignDeptOpen] = useState(false);
   const [assignGradeOpen, setAssignGradeOpen] = useState(false);
+  const [branchesPage, setBranchesPage] = useState(1);
+  const [branchesPerPage, setBranchesPerPage] = useState(10);
+  const [deptsPage, setDeptsPage] = useState(1);
+  const [deptsPerPage, setDeptsPerPage] = useState(10);
+  const [gradesPage, setGradesPage] = useState(1);
+  const [gradesPerPage, setGradesPerPage] = useState(10);
 
   const loadBranches = () => SchoolApi.getBranches().then(d => setBranches(Array.isArray(d) ? d : []));
 
@@ -66,12 +73,16 @@ const BranchesPage = () => {
   if (selected) {
     const assignedDepts = departments.filter((d) => selected.departmentUuids?.includes(d.uuid));
     const assignedGrades = grades.filter((g) => selected.gradeLevelUuids?.includes(g.uuid));
+    const totalDeptPages = Math.ceil(assignedDepts.length / deptsPerPage);
+    const pagedDepts = assignedDepts.slice((deptsPage - 1) * deptsPerPage, deptsPage * deptsPerPage);
+    const totalGradePages = Math.ceil(assignedGrades.length / gradesPerPage);
+    const pagedGrades = assignedGrades.slice((gradesPage - 1) * gradesPerPage, gradesPage * gradesPerPage);
 
     return (
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setSelected(null)}><ArrowLeft className="w-5 h-5" /></Button>
+            <Button variant="ghost" size="icon" onClick={() => { setSelected(null); setDeptsPage(1); setGradesPage(1); }}><ArrowLeft className="w-5 h-5" /></Button>
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Building2 className="w-5 h-5" /> {selected.name}
@@ -102,7 +113,7 @@ const BranchesPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assignedDepts.map((d) => (
+                {pagedDepts.map((d) => (
                   <TableRow key={d.uuid}>
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell className="text-muted-foreground">{d.code}</TableCell>
@@ -114,6 +125,8 @@ const BranchesPage = () => {
                 )}
               </TableBody>
             </Table>
+            <Pagination currentPage={deptsPage} totalPages={totalDeptPages} onPageChange={setDeptsPage}
+              itemsPerPage={deptsPerPage} onItemsPerPageChange={v => { setDeptsPerPage(v); setDeptsPage(1); }} />
           </div>
 
           {/* Grade Levels */}
@@ -133,7 +146,7 @@ const BranchesPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assignedGrades.map((g) => (
+                {pagedGrades.map((g) => (
                   <TableRow key={g.uuid}>
                     <TableCell className="text-muted-foreground">{g.order}</TableCell>
                     <TableCell className="font-medium">{g.name}</TableCell>
@@ -145,6 +158,8 @@ const BranchesPage = () => {
                 )}
               </TableBody>
             </Table>
+            <Pagination currentPage={gradesPage} totalPages={totalGradePages} onPageChange={setGradesPage}
+              itemsPerPage={gradesPerPage} onItemsPerPageChange={v => { setGradesPerPage(v); setGradesPage(1); }} />
           </div>
         </CardContent>
 
@@ -176,6 +191,9 @@ const BranchesPage = () => {
     );
   }
 
+  const totalBranchPages = Math.ceil(branches.length / branchesPerPage);
+  const pagedBranches = branches.slice((branchesPage - 1) * branchesPerPage, branchesPage * branchesPerPage);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -202,8 +220,8 @@ const BranchesPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {branches.map((b) => (
-              <TableRow key={b.uuid} className="cursor-pointer hover:bg-muted/40" onClick={() => setSelected(b)}>
+            {pagedBranches.map((b) => (
+              <TableRow key={b.uuid} className="cursor-pointer hover:bg-muted/40" onClick={() => { setSelected(b); setDeptsPage(1); setGradesPage(1); }}>
                 <TableCell className="font-medium text-primary">{b.name}</TableCell>
                 <TableCell className="text-muted-foreground">{b.code}</TableCell>
                 <TableCell>{b.location}</TableCell>
@@ -233,6 +251,8 @@ const BranchesPage = () => {
             )}
           </TableBody>
         </Table>
+        <Pagination currentPage={branchesPage} totalPages={totalBranchPages} onPageChange={setBranchesPage}
+          itemsPerPage={branchesPerPage} onItemsPerPageChange={v => { setBranchesPerPage(v); setBranchesPage(1); }} />
       </CardContent>
 
       <AddBranchModal

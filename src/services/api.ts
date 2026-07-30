@@ -44,6 +44,7 @@ const schoolAPI  = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/school`
 const leaveAPI   = applyAuthInterceptor(axios.create({ baseURL: `${BASE}`,            headers: { 'Content-Type': 'application/json' } }));
 const feesAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/fees`,       headers: { 'Content-Type': 'application/json' } }));
 const subjectAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/subjects`,   headers: { 'Content-Type': 'application/json' } }));
+const staffRoleAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/staff-roles`, headers: { 'Content-Type': 'application/json' } }));
 const supplierAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/suppliers`, headers: { 'Content-Type': 'application/json' } }));
 const billsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/bills`, headers: { 'Content-Type': 'application/json' } }));
 const paymentsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payments`, headers: { 'Content-Type': 'application/json' } }));
@@ -444,6 +445,22 @@ export const FeeApi = {
     await feesAPI.delete(`/payments/${id}`);
   },
 
+  // Manual payment verification (maker-checker for cheque / bank-slip entries)
+  getPendingVerification: async (): Promise<any[]> => {
+    try {
+      const res = await feesAPI.get('/payments/pending-verification');
+      return unwrapList(res);
+    } catch { return []; }
+  },
+  verifyPayment: async (id: number, verifier: string): Promise<any> => {
+    const res = await feesAPI.patch(`/payments/${id}/verify`, { approver: verifier });
+    return unwrap(res);
+  },
+  rejectPayment: async (id: number, verifier: string, reason: string): Promise<any> => {
+    const res = await feesAPI.patch(`/payments/${id}/reject`, { approver: verifier, reason });
+    return unwrap(res);
+  },
+
   // Fee structures (Maker / Approver / Approved workflow)
   getStructures: async (): Promise<any[]> => {
     try {
@@ -465,12 +482,12 @@ export const FeeApi = {
     const res = await feesAPI.post('/structures/submit', data);
     return unwrap(res);
   },
-  approveStructure: async (uuid: string, approver: string): Promise<any> => {
-    const res = await feesAPI.patch(`/structures/${uuid}/approve`, { approver });
+  approveStructure: async (uuid: string): Promise<any> => {
+    const res = await feesAPI.patch(`/structures/${uuid}/approve`);
     return unwrap(res);
   },
-  rejectStructure: async (uuid: string, approver: string, reason: string): Promise<any> => {
-    const res = await feesAPI.patch(`/structures/${uuid}/reject`, { approver, reason });
+  rejectStructure: async (uuid: string, reason: string): Promise<any> => {
+    const res = await feesAPI.patch(`/structures/${uuid}/reject`, { reason });
     return unwrap(res);
   },
 };
@@ -495,6 +512,29 @@ export const SubjectApi = {
   },
   delete: async (id: number): Promise<void> => {
     await subjectAPI.delete(`/${id}`);
+  },
+};
+
+export const StaffRoleApi = {
+  getAll: async (): Promise<any[]> => {
+    try {
+      const res = await staffRoleAPI.get('');
+      return unwrapList(res);
+    } catch { return []; }
+  },
+  create: async (data: any): Promise<any> => {
+    const res = await staffRoleAPI.post('', data);
+    return unwrap(res);
+  },
+  update: async (id: number, data: any): Promise<any> => {
+    const res = await staffRoleAPI.put(`/${id}`, data);
+    return unwrap(res);
+  },
+  toggle: async (id: number): Promise<void> => {
+    await staffRoleAPI.patch(`/${id}/toggle`);
+  },
+  delete: async (id: number): Promise<void> => {
+    await staffRoleAPI.delete(`/${id}`);
   },
 };
 
@@ -624,7 +664,7 @@ export const ClassTeacherApi = {
   getAll: async (): Promise<any[]> => {
     try { return unwrapList(await classTeacherAPI.get('')); } catch { return []; }
   },
-  assign: async (data: { teacherUuid: string; grade: string; stream: string }): Promise<any> =>
+  assign: async (data: { teacherUuid: string; gradeLevelUuid: string; stream: string }): Promise<any> =>
     unwrap(await classTeacherAPI.post('', data)),
   unassign: async (uuid: string): Promise<void> => { await classTeacherAPI.delete(`/${uuid}`); },
   getMine: async (teacherUuid: string): Promise<any> => {

@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import {GradeFormValue} from "@/types/types";
 
 interface AddGradeModalProps {
@@ -70,12 +70,17 @@ const AddGradeModal = ({ open, onOpenChange, onSave, defaultOrder = 1, initialVa
     if (streams > 1) {
       const trimmed = streamNames.map((n) => n.trim());
       if (trimmed.length !== streams || trimmed.some((n) => !n)) {
-        toast.error(`Name all ${streams} streams — one name per stream, none left blank`);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: `Name all ${streams} streams — one name per stream, none left blank`,
+          showConfirmButton: true,
+        });
         return;
       }
       const unique = new Set(trimmed.map((n) => n.toLowerCase()));
       if (unique.size !== trimmed.length) {
-        toast.error("Stream names must be unique within this grade");
+        Swal.fire({ icon: "error", title: "Error", text: "Stream names must be unique within this grade", showConfirmButton: true });
         return;
       }
       const caps = Array.from({ length: streams }, (_, i) => Number(streamCapacities[i]) || undefined);

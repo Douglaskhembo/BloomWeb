@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ArrowLeft, Plus, Pencil, Trash2, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
+import Pagination from "@/utils/Pagination";
 
 interface GradeEntry {
   label: string;
@@ -93,7 +94,6 @@ const gradesList = [
 
 const GradingSetupPage = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [structures, setStructures] = useState<GradingStructure[]>([
     { grade: "Grade 7", entries: [...defaultEntries] },
     { grade: "Grade 8", entries: [...defaultEntries] },
@@ -109,16 +109,22 @@ const GradingSetupPage = () => {
   const [entryForm, setEntryForm] = useState<GradeEntry>({
     label: "", minScore: 0, maxScore: 100, points: 0, remark: "",
   });
+  const [entriesPage, setEntriesPage] = useState(1);
+  const [entriesPerPage, setEntriesPerPage] = useState(10);
 
   const currentStructure = structures.find((s) => s.grade === selectedGrade);
   const gradesWithStructure = structures.map((s) => s.grade);
   const gradesWithoutStructure = gradesList.filter((g) => !gradesWithStructure.includes(g));
 
+  const currentEntries = currentStructure?.entries ?? [];
+  const totalEntryPages = Math.ceil(currentEntries.length / entriesPerPage);
+  const pagedEntries = currentEntries.slice((entriesPage - 1) * entriesPerPage, entriesPage * entriesPerPage);
+
   const handleAddGrade = () => {
     if (!newGrade) return;
     const preset = curriculumPresets[newPreset] ?? curriculumPresets.kcse;
     setStructures((prev) => [...prev, { grade: newGrade, entries: preset.entries.map((e) => ({ ...e })) }]);
-    toast({ title: "Grading added", description: `${preset.name} grading structure created for ${newGrade}.` });
+    Swal.fire({ title: "Grading added", text: `${preset.name} grading structure created for ${newGrade}.`, icon: "success", showConfirmButton: true });
     setNewGrade("");
     setDialogOpen(false);
   };
@@ -132,13 +138,13 @@ const GradingSetupPage = () => {
         s.grade === selectedGrade ? { ...s, entries: preset.entries.map((e) => ({ ...e })) } : s
       )
     );
-    toast({ title: "Preset applied", description: `${preset.name} applied to ${selectedGrade}.` });
+    Swal.fire({ title: "Preset applied", text: `${preset.name} applied to ${selectedGrade}.`, icon: "success", showConfirmButton: true });
   };
 
   const handleDeleteGrade = (grade: string) => {
     setStructures((prev) => prev.filter((s) => s.grade !== grade));
     if (selectedGrade === grade) setSelectedGrade(null);
-    toast({ title: "Removed", description: `Grading structure for ${grade} has been removed.` });
+    Swal.fire({ title: "Removed", text: `Grading structure for ${grade} has been removed.`, icon: "success", showConfirmButton: true });
   };
 
   const handleOpenAddEntry = () => {
@@ -168,7 +174,7 @@ const GradingSetupPage = () => {
         return { ...s, entries };
       })
     );
-    toast({ title: editingIndex !== null ? "Entry updated" : "Entry added" });
+    Swal.fire({ title: editingIndex !== null ? "Entry updated" : "Entry added", icon: "success", showConfirmButton: true });
     setEntryDialogOpen(false);
   };
 
@@ -186,7 +192,7 @@ const GradingSetupPage = () => {
     const source = structures.find((s) => s.grade === selectedGrade);
     if (!source) return;
     setStructures((prev) => [...prev, { grade: copyTargetGrade, entries: source.entries.map((e) => ({ ...e })) }]);
-    toast({ title: "Copied", description: `Grading structure copied from ${selectedGrade} to ${copyTargetGrade}.` });
+    Swal.fire({ title: "Copied", text: `Grading structure copied from ${selectedGrade} to ${copyTargetGrade}.`, icon: "success", showConfirmButton: true });
     setCopyTargetGrade("");
     setCopyDialogOpen(false);
   };
@@ -197,7 +203,7 @@ const GradingSetupPage = () => {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setSelectedGrade(null)}>
+            <Button variant="ghost" size="icon" onClick={() => { setSelectedGrade(null); setEntriesPage(1); }}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div>
@@ -239,8 +245,10 @@ const GradingSetupPage = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {currentStructure.entries.map((entry, i) => (
-                  <TableRow key={i}>
+                {pagedEntries.map((entry, i) => {
+                  const actualIndex = (entriesPage - 1) * entriesPerPage + i;
+                  return (
+                  <TableRow key={actualIndex}>
                     <TableCell><Badge variant="outline" className="font-semibold">{entry.label}</Badge></TableCell>
                     <TableCell>{entry.minScore}%</TableCell>
                     <TableCell>{entry.maxScore}%</TableCell>
@@ -248,18 +256,21 @@ const GradingSetupPage = () => {
                     <TableCell className="text-muted-foreground text-sm">{entry.remark}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditEntry(i, entry)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditEntry(actualIndex, entry)}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteEntry(i)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteEntry(actualIndex)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
+            <Pagination currentPage={entriesPage} totalPages={totalEntryPages} onPageChange={setEntriesPage}
+              itemsPerPage={entriesPerPage} onItemsPerPageChange={v => { setEntriesPerPage(v); setEntriesPage(1); }} />
           </CardContent>
         </Card>
 

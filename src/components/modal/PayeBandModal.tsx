@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import type { TaxBracket } from "@/types/payroll";
 
 interface Props {
@@ -33,7 +33,10 @@ const PayeBandModal = ({ open, onOpenChange, initial, defaultMin = 0, onSubmit }
   }, [open, initial, defaultMin]);
 
   const handleSave = () => {
-    if (bMin === "" || bRate === "") { toast.error("Min and Rate are required"); return; }
+    if (bMin === "" || bRate === "") {
+      Swal.fire({ icon: "error", title: "Error", text: "Min and Rate are required", showConfirmButton: true });
+      return;
+    }
     onSubmit({ minAmount: Number(bMin), maxAmount: bMax === "" ? null : Number(bMax), rate: Number(bRate) });
   };
 

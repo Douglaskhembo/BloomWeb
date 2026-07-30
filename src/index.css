@@ -110,3 +110,12 @@
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
 }
+
+/* Radix dialogs (shadcn Dialog/AlertDialog) lock pointer-events on everything outside their own
+   portal while open, via react-remove-scroll's "block-interactivity" class on the body. SweetAlert2
+   renders its popup as a separate sibling appended directly to <body>, so it inherits that lockout
+   and its buttons become unclickable — until the underlying dialog closes and releases the lock.
+   Force it back on so a Swal opened from inside a modal is always clickable. */
+.swal2-container {
+  pointer-events: auto !important;
+}

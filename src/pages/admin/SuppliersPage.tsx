@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Search, Plus, Store, Truck, Package, Pencil, Trash2 } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import SupplierFormModal from "@/components/modal/SupplierFormModal";
 import { SupplierFormValues } from "@/components/forms/SupplierForm";
 import { SupplierApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Pagination from "@/utils/Pagination";
 
 interface Supplier {
   id: number;
@@ -41,13 +42,14 @@ const emptyForm: SupplierFormValues = {
 };
 
 const SuppliersPage = () => {
-  const { toast } = useToast();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<SupplierFormValues>(emptyForm);
+  const [suppliersPage, setSuppliersPage] = useState(1);
+  const [suppliersPerPage, setSuppliersPerPage] = useState(10);
 
   const load = (q?: string) => {
     setLoading(true);
@@ -86,25 +88,25 @@ const SuppliersPage = () => {
     try {
       if (editingId !== null) {
         await SupplierApi.update(editingId, payload);
-        toast({ title: "Supplier updated" });
+        Swal.fire({ title: "Supplier updated", icon: "success", showConfirmButton: true });
       } else {
         await SupplierApi.create(payload);
-        toast({ title: "Supplier added" });
+        Swal.fire({ title: "Supplier added", icon: "success", showConfirmButton: true });
       }
       setOpen(false);
       load(search || undefined);
     } catch (err) {
-      toast({ title: "Failed to save supplier", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to save supplier", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
       await SupplierApi.delete(id);
-      toast({ title: "Supplier removed" });
+      Swal.fire({ title: "Supplier removed", icon: "success", showConfirmButton: true });
       load(search || undefined);
     } catch (err) {
-      toast({ title: "Failed to delete supplier", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to delete supplier", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -113,7 +115,7 @@ const SuppliersPage = () => {
       await SupplierApi.toggleStatus(id);
       load(search || undefined);
     } catch (err) {
-      toast({ title: "Failed to update status", description: getBackendErrorMessage(err), variant: "destructive" });
+      Swal.fire({ icon: "error", title: "Failed to update status", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
@@ -123,6 +125,9 @@ const SuppliersPage = () => {
     const categories = new Set(suppliers.map((s) => s.category).filter(Boolean)).size;
     return { total, active, categories };
   }, [suppliers]);
+
+  const totalSupplierPages = Math.ceil(suppliers.length / suppliersPerPage);
+  const pagedSuppliers = suppliers.slice((suppliersPage - 1) * suppliersPerPage, suppliersPage * suppliersPerPage);
 
   return (
     <div className="space-y-6">
@@ -149,7 +154,7 @@ const SuppliersPage = () => {
                 placeholder="Search suppliers..."
                 className="pl-10"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setSuppliersPage(1); }}
               />
             </div>
           </div>
@@ -158,6 +163,7 @@ const SuppliersPage = () => {
           {loading ? (
             <p className="text-sm text-muted-foreground text-center py-8">Loading suppliers...</p>
           ) : (
+          <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -171,9 +177,9 @@ const SuppliersPage = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {suppliers.length === 0 ? (
+              {pagedSuppliers.length === 0 ? (
                 <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No suppliers found.</TableCell></TableRow>
-              ) : suppliers.map((s) => (
+              ) : pagedSuppliers.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px]">{s.category}</Badge></TableCell>
@@ -203,6 +209,9 @@ const SuppliersPage = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={suppliersPage} totalPages={totalSupplierPages} onPageChange={setSuppliersPage}
+            itemsPerPage={suppliersPerPage} onItemsPerPageChange={v => { setSuppliersPerPage(v); setSuppliersPage(1); }} />
+          </>
           )}
         </CardContent>
       </Card>

@@ -7,10 +7,11 @@ import { Download, DollarSign, Eye } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import StatCard from "@/components/dashboard/StatCard";
-import { useToast } from "@/hooks/use-toast";
+import Swal from "sweetalert2";
 import { PayrollApi } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
 import { formatKES } from "@/lib/payroll/kenya";
+import Pagination from "@/utils/Pagination";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -57,11 +58,13 @@ const toPayslip = (raw: any): Payslip => ({
 });
 
 const TeacherPayslips = () => {
-  const { toast } = useToast();
   const { user } = useAuth();
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewPayslip, setPreviewPayslip] = useState<Payslip | null>(null);
+
+  const [payslipsPage, setPayslipsPage] = useState(1);
+  const [payslipsPerPage, setPayslipsPerPage] = useState(10);
 
   useEffect(() => {
     PayrollApi.getMyPayslips()
@@ -75,6 +78,9 @@ const TeacherPayslips = () => {
   const latestNet = payslips[0]?.netSalary ?? 0;
   const ytdGross = ytdPayslips.reduce((sum, p) => sum + p.grossSalary, 0);
   const ytdDeductions = ytdPayslips.reduce((sum, p) => sum + p.totalDeductions, 0);
+
+  const totalPayslipPages = Math.ceil(payslips.length / payslipsPerPage);
+  const pagedPayslips = payslips.slice((payslipsPage - 1) * payslipsPerPage, payslipsPage * payslipsPerPage);
 
   const downloadPayslip = (p: Payslip) => {
     const doc = new jsPDF();
@@ -121,7 +127,7 @@ const TeacherPayslips = () => {
     }
 
     doc.save(`Payslip-${p.monthLabel.replace(/\s+/g, "-")}.pdf`);
-    toast({ title: "Payslip downloaded" });
+    Swal.fire({ icon: "info", title: "Payslip downloaded", showConfirmButton: true });
   };
 
   return (
@@ -170,7 +176,7 @@ const TeacherPayslips = () => {
                   </TableCell>
                 </TableRow>
               )}
-              {payslips.map((p) => (
+              {pagedPayslips.map((p) => (
                 <TableRow key={p.runId}>
                   <TableCell className="font-medium">{p.monthLabel}</TableCell>
                   <TableCell className="text-right">{p.basicSalary.toLocaleString()}</TableCell>
@@ -196,6 +202,8 @@ const TeacherPayslips = () => {
               ))}
             </TableBody>
           </Table>
+          <Pagination currentPage={payslipsPage} totalPages={totalPayslipPages} onPageChange={setPayslipsPage}
+            itemsPerPage={payslipsPerPage} onItemsPerPageChange={v => { setPayslipsPerPage(v); setPayslipsPage(1); }} />
         </CardContent>
       </Card>
 

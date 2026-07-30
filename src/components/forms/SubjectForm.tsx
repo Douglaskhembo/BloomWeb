@@ -1,20 +1,22 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 export interface SubjectFormValues {
   name: string;
   code: string;
-  grades: string;
+  grades: string[];
   active: boolean;
 }
 
 interface Props {
   value: SubjectFormValues;
   onChange: (v: SubjectFormValues) => void;
+  gradeOptions: string[];
 }
 
-const SubjectForm = ({ value, onChange }: Props) => (
+const SubjectForm = ({ value, onChange, gradeOptions }: Props) => (
   <div className="space-y-4">
     <div className="space-y-2">
       <Label>Subject Name</Label>
@@ -26,7 +28,14 @@ const SubjectForm = ({ value, onChange }: Props) => (
     </div>
     <div className="space-y-2">
       <Label>Applicable Grades</Label>
-      <Input value={value.grades} onChange={(e) => onChange({ ...value, grades: e.target.value })} placeholder="e.g. PP1 – Grade 9" />
+      <MultiSelect
+        options={gradeOptions}
+        selected={value.grades}
+        onChange={(grades) => onChange({ ...value, grades })}
+        placeholder="Select grade(s)..."
+        searchPlaceholder="Search grades..."
+        allLabel="All Grades"
+      />
     </div>
     <div className="flex items-center justify-between">
       <Label>Active</Label>

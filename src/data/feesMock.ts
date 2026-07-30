@@ -5,12 +5,16 @@ export interface Student {
   id: string;
   admissionNo: string;
   name: string;
+  birthCertificateNumber?: string;
   grade: string;
   stream: string;
   parent: string;
   phone: string;
   expected: number;
 }
+
+export type PaymentSource = "Manual" | "Streamed";
+export type VerificationStatus = "Confirmed" | "Pending Verification" | "Rejected";
 
 export interface Payment {
   id: string;
@@ -19,6 +23,15 @@ export interface Payment {
   method: PaymentMethod;
   reference: string;
   date: string; // ISO
+  source?: PaymentSource;
+  verificationStatus?: VerificationStatus;
+  bankName?: string;
+  slipOrChequeNumber?: string;
+  notes?: string;
+  recordedBy?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  rejectionReason?: string;
 }
 
 export const GRADES = [

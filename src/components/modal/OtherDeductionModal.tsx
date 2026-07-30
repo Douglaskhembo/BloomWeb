@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import type { OtherDeduction } from "@/types/payroll";
 
 interface Props {
@@ -28,7 +28,10 @@ const OtherDeductionModal = ({ open, onOpenChange, initial, onSubmit }: Props) =
   }, [open, initial]);
 
   const handleSave = () => {
-    if (!name || !value) { toast.error("Fill all fields"); return; }
+    if (!name || !value) {
+      Swal.fire({ icon: "error", title: "Error", text: "Fill all fields", showConfirmButton: true });
+      return;
+    }
     onSubmit({ name, type, defaultValue: Number(value), mandatory });
   };
 

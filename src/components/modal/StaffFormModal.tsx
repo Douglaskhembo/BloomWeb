@@ -8,9 +8,11 @@ interface StaffFormModalProps {
   onChange: (v: StaffFormData) => void;
   onSubmit: () => void;
   isEditing: boolean;
+  subjectOptions: string[];
+  staffRoleOptions: string[];
 }
 
-const StaffFormModal = ({ open, onOpenChange, value, onChange, onSubmit, isEditing }: StaffFormModalProps) => (
+const StaffFormModal = ({ open, onOpenChange, value, onChange, onSubmit, isEditing, subjectOptions, staffRoleOptions }: StaffFormModalProps) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
       <DialogHeader>
@@ -23,6 +25,8 @@ const StaffFormModal = ({ open, onOpenChange, value, onChange, onSubmit, isEditi
         onSubmit={onSubmit}
         onCancel={() => onOpenChange(false)}
         isEditing={isEditing}
+        subjectOptions={subjectOptions}
+        staffRoleOptions={staffRoleOptions}
       />
     </DialogContent>
   </Dialog>

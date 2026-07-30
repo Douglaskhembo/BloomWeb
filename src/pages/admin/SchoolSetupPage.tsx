@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Pencil, Save, Upload, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import GradeLevelsPage from "./GradeLevelsPage";
@@ -53,7 +53,7 @@ const SchoolSetupPage = () => {
 
   const handleSave = async () => {
     if (!info.name?.trim()) {
-      toast.error("School Name is required");
+      Swal.fire({ icon: "error", title: "Error", text: "School Name is required", showConfirmButton: true });
       return;
     }
     setSaving(true);
@@ -64,9 +64,9 @@ const SchoolSetupPage = () => {
         setOriginalInfo(saved);
       }
       setEditing(false);
-      toast.success(isNew ? "School created" : "School information updated");
+      Swal.fire({ title: "Success", text: isNew ? "School created" : "School information updated", icon: "success", showConfirmButton: true });
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to save school information"));
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save school information"), showConfirmButton: true });
     } finally {
       setSaving(false);
     }

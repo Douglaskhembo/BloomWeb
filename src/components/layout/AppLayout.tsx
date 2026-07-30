@@ -1,6 +1,6 @@
 import { Outlet, useNavigate } from "react-router-dom";
 import AppSidebar from "./AppSidebar";
-import { Bell, Search, Sun, Moon, LogOut, KeyRound } from "lucide-react";
+import { Bell, Search, Sun, Moon, Monitor, Check, LogOut, KeyRound } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -19,7 +19,7 @@ interface AppLayoutProps {
 }
 
 const AppLayout = ({ role }: AppLayoutProps) => {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -53,9 +53,18 @@ const AppLayout = ({ role }: AppLayoutProps) => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <div className="px-3 py-2 text-sm font-medium border-b border-border truncate">{displayName}</div>
-                <DropdownMenuItem onClick={toggleTheme}>
-                  {theme === "light" ? <Moon className="w-4 h-4 mr-2" /> : <Sun className="w-4 h-4 mr-2" />}
-                  {theme === "light" ? "Dark Mode" : "Light Mode"}
+                <div className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground">Theme</div>
+                <DropdownMenuItem onClick={() => setTheme("light")}>
+                  <Sun className="w-4 h-4 mr-2" /> Light
+                  {theme === "light" && <Check className="w-4 h-4 ml-auto" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("dark")}>
+                  <Moon className="w-4 h-4 mr-2" /> Dark
+                  {theme === "dark" && <Check className="w-4 h-4 ml-auto" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("system")}>
+                  <Monitor className="w-4 h-4 mr-2" /> System
+                  {theme === "system" && <Check className="w-4 h-4 ml-auto" />}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled>

@@ -1,6 +1,6 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarDays, DollarSign, GraduationCap, BookOpen, Calculator, Award, Wallet, Fingerprint } from "lucide-react";
+import { CalendarDays, DollarSign, GraduationCap, BookOpen, Calculator, Award, Wallet, Fingerprint, IdCard } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const managementCards = [
@@ -36,6 +36,17 @@ const managementCards = [
     activeCount: 8,
     totalCount: 10,
     totalLabel: "subjects",
+  },
+  {
+    to: "/admin/setup-staff-roles",
+    icon: IdCard,
+    iconBg: "bg-rose-500/10",
+    iconColor: "text-rose-600",
+    title: "Staff Roles",
+    description: "Define job titles/positions available when onboarding staff",
+    activeCount: 0,
+    totalCount: 0,
+    totalLabel: "roles",
   },
   {
     to: "/admin/setup-grading",

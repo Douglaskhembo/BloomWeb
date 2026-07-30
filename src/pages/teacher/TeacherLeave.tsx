@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar, CalendarDays, CheckCircle, Clock, Upload, FileText, X } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { useAuth } from "@/context/AuthContext";
 import { LeaveApi, StaffApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
@@ -65,7 +65,12 @@ const TeacherLeave = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be under 5MB");
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: "File size must be under 5MB",
+          showConfirmButton: true,
+        });
         return;
       }
       setUploadedFile(file);
@@ -83,23 +88,48 @@ const TeacherLeave = () => {
 
   const handleSubmit = async () => {
     if (!staff) {
-      toast.error("Your staff profile could not be found");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Your staff profile could not be found",
+        showConfirmButton: true,
+      });
       return;
     }
     if (!selectedLeaveTypeId) {
-      toast.error("Please select a leave type");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Please select a leave type",
+        showConfirmButton: true,
+      });
       return;
     }
     if (!fromDate || !toDate) {
-      toast.error("Please select the leave dates");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Please select the leave dates",
+        showConfirmButton: true,
+      });
       return;
     }
     if (requiresDoc && !uploadedFile) {
-      toast.error("This leave type requires a supporting document");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "This leave type requires a supporting document",
+        showConfirmButton: true,
+      });
       return;
     }
     if (requiresDoc && acceptedDocs.length > 0 && !selectedDocType) {
-      toast.error("Please select the document type");
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: "Please select the document type",
+        showConfirmButton: true,
+      });
       return;
     }
     setSubmitting(true);
@@ -114,11 +144,21 @@ const TeacherLeave = () => {
         documentName: uploadedFile?.name,
         documentType: selectedDocType || undefined,
       });
-      toast.success("Leave request submitted successfully");
+      Swal.fire({
+        title: 'Success',
+        text: "Leave request submitted successfully",
+        icon: 'success',
+        showConfirmButton: true,
+      });
       resetForm();
       load(staff.staffId);
     } catch (err) {
-      toast.error(getBackendErrorMessage(err, "Failed to submit leave request"));
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: getBackendErrorMessage(err, "Failed to submit leave request"),
+        showConfirmButton: true,
+      });
     } finally {
       setSubmitting(false);
     }
