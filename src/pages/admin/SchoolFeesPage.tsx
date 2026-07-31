@@ -78,7 +78,7 @@ const SchoolFeesPage = () => {
     if (!rpStudent) { Swal.fire({ icon: "error", title: "Error", text: "Select a student", showConfirmButton: true }); return; }
     const amt = Number(rpAmount);
     if (!amt || amt <= 0) { Swal.fire({ icon: "error", title: "Error", text: "Enter a valid amount", showConfirmButton: true }); return; }
-    if (!rpReference.trim()) { Swal.fire({ icon: "error", title: "Error", text: "Receipt / reference number is required", showConfirmButton: true }); return; }
+    if (rpMethod !== "Cash" && !rpReference.trim()) { Swal.fire({ icon: "error", title: "Error", text: "Receipt / reference number is required", showConfirmButton: true }); return; }
     const isBankLike = rpMethod === "Cheque" || rpMethod === "Bank";
     setRpSubmitting(true);
     try {
@@ -90,7 +90,7 @@ const SchoolFeesPage = () => {
         amount: amt,
         expectedAmount: rpStudent.expected,
         method: METHOD_TO_BACKEND[rpMethod],
-        reference: rpReference.trim(),
+        reference: rpMethod === "Cash" ? undefined : rpReference.trim(),
         paymentDate: new Date(rpDate).toISOString(),
         bankName: isBankLike ? rpBankName.trim() || undefined : undefined,
         slipOrChequeNumber: isBankLike ? rpReference.trim() : undefined,
@@ -1157,18 +1157,25 @@ const SchoolFeesPage = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  {rpMethod === "Cheque" ? "Cheque No." : rpMethod === "Bank" ? "Deposit Slip / Txn No." : "Receipt / Reference No."}
-                  <span className="text-destructive"> *</span>
-                </Label>
-                <Input value={rpReference} onChange={(e) => setRpReference(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
+              {rpMethod !== "Cash" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    {rpMethod === "Cheque" ? "Cheque No." : rpMethod === "Bank" ? "Deposit Slip / Txn No." : "Receipt / Reference No."}
+                    <span className="text-destructive"> *</span>
+                  </Label>
+                  <Input value={rpReference} onChange={(e) => setRpReference(e.target.value)} />
+                </div>
+              )}
+              <div className={`space-y-1.5 ${rpMethod === "Cash" ? "col-span-2" : ""}`}>
                 <Label className="text-xs">Date</Label>
                 <Input type="datetime-local" value={rpDate} onChange={(e) => setRpDate(e.target.value)} />
               </div>
             </div>
+            {rpMethod === "Cash" && (
+              <p className="text-xs text-muted-foreground -mt-2">
+                A receipt reference will be generated automatically for cash payments.
+              </p>
+            )}
 
             {(rpMethod === "Cheque" || rpMethod === "Bank") && (
               <div className="space-y-1.5">
