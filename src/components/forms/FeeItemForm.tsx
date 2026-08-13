@@ -9,8 +9,20 @@ export interface FeeItemFormValues {
   grades: string[];
   amount: number;
   term: string;
+  category: string;
+  mandatory: boolean;
   active: boolean;
 }
+
+export const FEE_CATEGORIES = [
+  { value: "TUITION", label: "Tuition" },
+  { value: "BOARDING", label: "Boarding" },
+  { value: "TRANSPORT", label: "Transport" },
+  { value: "LUNCH", label: "Lunch" },
+  { value: "ACTIVITY", label: "Activity" },
+  { value: "EXAMINATION", label: "Examination" },
+  { value: "OTHER", label: "Other" },
+] as const;
 
 interface Props {
   value: FeeItemFormValues;
@@ -49,6 +61,19 @@ const FeeItemForm = ({ value, onChange, gradeOptions }: Props) => (
           <SelectItem value="One-time">One-time</SelectItem>
         </SelectContent>
       </Select>
+    </div>
+    <div className="space-y-2">
+      <Label>Category</Label>
+      <Select value={value.category} onValueChange={(v) => onChange({ ...value, category: v })}>
+        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+        <SelectContent>
+          {FEE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+    <div className="flex items-center justify-between">
+      <Label>Mandatory</Label>
+      <Switch checked={value.mandatory} onCheckedChange={(c) => onChange({ ...value, mandatory: c })} />
     </div>
     <div className="flex items-center justify-between">
       <Label>Active</Label>

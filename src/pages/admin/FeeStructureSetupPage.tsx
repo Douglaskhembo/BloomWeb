@@ -40,14 +40,17 @@ import Pagination from "@/utils/Pagination";
 import { FeeApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-const emptyForm: FeeItemFormValues = { name: "", grades: [], amount: 0, term: "Per Term", active: true };
+const emptyForm: FeeItemFormValues = { name: "", grades: [], amount: 0, term: "Per Term", category: "OTHER", mandatory: true, active: true };
 interface GradeLevelOption { uuid: string; name: string; active: boolean; }
 const toGradeLevelOption = (raw: any): GradeLevelOption => ({
   uuid: raw.uuid,
   name: raw.name,
   active: raw.status === "ACTIVE",
 });
-const TERMS = ["Term 1", "Term 2", "Term 3"] as const;
+const TERMS = ["Term 1", "Term 2", "Term 3", "Full Year"] as const;
+// Which FeeItem billing cycles are eligible for each structure period — keeps a "Per Year" item
+// from ever being enabled in more than one term's structure (it only ever fits the Full Year one).
+const billingCycleFor = (period: string): string[] => (period === "Full Year" ? ["Per Year", "One-time"] : ["Per Term"]);
 const WORKFLOW_TABS = ["maker", "approver", "approved"] as const;
 
 type TermKey = (typeof TERMS)[number];
@@ -78,6 +81,7 @@ interface FeeStructureRecord {
   approver?: string;
   reviewedAt?: string;
   rejectionReason?: string;
+  dueDate?: string;
 }
 
 interface AuditEntry {
@@ -118,6 +122,8 @@ const toFeeItem = (raw: any) => ({
   grades: (raw.gradeLevels ?? []).map((g: any) => g.name) as string[],
   amount: raw.amount as number,
   term: raw.term ?? "Per Term",
+  category: raw.category ?? "OTHER",
+  mandatory: raw.mandatory ?? true,
   active: Boolean(raw.active),
 });
 
@@ -137,6 +143,7 @@ const toStructureRecord = (raw: any): FeeStructureRecord => ({
   approver: raw.approver ?? undefined,
   reviewedAt: raw.reviewedAt ?? undefined,
   rejectionReason: raw.rejectionReason ?? undefined,
+  dueDate: raw.dueDate ?? undefined,
 });
 
 const toAuditEntry = (raw: any): AuditEntry => ({
@@ -167,6 +174,7 @@ const FeeStructureSetupPage = () => {
   const [selectedTerm, setSelectedTerm] = useState<TermKey>("Term 1");
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
   const [draftLines, setDraftLines] = useState<GradeStatementLine[] | null>(null);
+  const [selectedDueDate, setSelectedDueDate] = useState("");
   const [editingRejectedId, setEditingRejectedId] = useState<string | null>(null);
   const [structures, setStructures] = useState<FeeStructureRecord[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
@@ -250,16 +258,21 @@ const FeeStructureSetupPage = () => {
   const isReadOnly = !isMaker;
 
   // A fee item with no grades selected applies to all grades; otherwise it only applies where tagged.
-  const itemsForGrade = (grade: string) =>
-    feeItems.filter((item) => item.grades.length === 0 || item.grades.includes(grade));
+  // Also period-scoped: a "Per Term" item only ever fits a Term 1/2/3 structure, and a "Per Year"/
+  // "One-time" item only ever fits the Full Year structure — this is what stops an annual fee from
+  // being enabled (and billed) in more than one term.
+  const itemsForGrade = (grade: string, period: TermKey) => {
+    const cycles = billingCycleFor(period);
+    return feeItems.filter((item) => (item.grades.length === 0 || item.grades.includes(grade)) && cycles.includes(item.term));
+  };
 
-  const defaultLines = (grade: string): GradeStatementLine[] =>
-    itemsForGrade(grade).map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount }));
+  const defaultLines = (grade: string, period: TermKey): GradeStatementLine[] =>
+    itemsForGrade(grade, period).map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount }));
 
   const approvedLines = (grade: string, term: TermKey): GradeStatementLine[] => {
     const existing = liveMap[grade]?.[term];
-    const gradeItems = itemsForGrade(grade);
-    if (!existing?.length) return defaultLines(grade);
+    const gradeItems = itemsForGrade(grade, term);
+    if (!existing?.length) return defaultLines(grade, term);
 
     const knownIds = new Set(existing.map((line) => line.itemId));
     return [
@@ -441,6 +454,7 @@ const FeeStructureSetupPage = () => {
     setDraftLines(null);
     setEditingRejectedId(null);
     setSubmitNote("");
+    setSelectedDueDate("");
   };
 
   const saveDraft = async () => {
@@ -455,6 +469,7 @@ const FeeStructureSetupPage = () => {
         term: selectedTerm,
         lines: currentLines,
         note: submitNote,
+        dueDate: selectedDueDate || undefined,
       });
       Swal.fire({ title: "Success", text: `Draft saved — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
       await load();
@@ -483,6 +498,7 @@ const FeeStructureSetupPage = () => {
         term: selectedTerm,
         lines: currentLines,
         note: submitNote,
+        dueDate: selectedDueDate || undefined,
         reworkUuid: editingRejectedId ?? undefined,
       });
       setPreviewOpen(false);
@@ -505,6 +521,7 @@ const FeeStructureSetupPage = () => {
     setDraftLines(record.lines);
     setEditingRejectedId(record.id);
     setSubmitNote(record.note ?? "");
+    setSelectedDueDate(record.dueDate ?? "");
     setActiveTab("maker");
   };
 
@@ -551,7 +568,7 @@ const FeeStructureSetupPage = () => {
 
   const openEdit = (feeItem: typeof feeItems[number]) => {
     setEditingId(feeItem.id);
-    setForm({ name: feeItem.name, grades: feeItem.grades, amount: feeItem.amount, term: feeItem.term, active: feeItem.active });
+    setForm({ name: feeItem.name, grades: feeItem.grades, amount: feeItem.amount, term: feeItem.term, category: feeItem.category, mandatory: feeItem.mandatory, active: feeItem.active });
     setOpen(true);
   };
 
@@ -559,7 +576,7 @@ const FeeStructureSetupPage = () => {
     const gradeLevelUuids = form.grades
       .map((name) => gradeLevels.find((g) => g.name === name)?.uuid)
       .filter((uuid): uuid is string => Boolean(uuid));
-    const payload = { name: form.name, amount: form.amount, term: form.term, active: form.active, gradeLevelUuids };
+    const payload = { name: form.name, amount: form.amount, term: form.term, category: form.category, mandatory: form.mandatory, active: form.active, gradeLevelUuids };
     try {
       if (editingId !== null) {
         await FeeApi.updateItem(editingId, payload);
@@ -726,6 +743,7 @@ const FeeStructureSetupPage = () => {
                     <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                     <SelectContent>{TERMS.map((term) => <SelectItem key={term} value={term}>{term}</SelectItem>)}</SelectContent>
                   </Select>
+                  <Input type="date" className="w-[150px]" value={selectedDueDate} onChange={(e) => setSelectedDueDate(e.target.value)} placeholder="Due date" />
                   {isDirty && <Button size="sm" variant="outline" onClick={resetMakerForm}><RotateCcw className="h-4 w-4" /> Clear</Button>}
                   <Button size="sm" variant="outline" disabled={!isMaker || !isDirty} onClick={saveDraft}><Save className="h-4 w-4" /> Save Draft</Button>
                   <Button size="sm" disabled={!isMaker || !isDirty} onClick={openPreview}><Send className="h-4 w-4" /> Preview & Submit</Button>

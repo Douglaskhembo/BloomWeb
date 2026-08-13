@@ -38,12 +38,13 @@ const ParentFees = () => {
     (async () => {
       setLoading(true);
       try {
-        const [rawChildren, feeItems] = await Promise.all([
+        const [rawChildren, rawCharges, rawItems] = await Promise.all([
           StudentApi.getMyChildren(user.userUuid),
+          FeeApi.getCurrentCharges(),
           FeeApi.getItems(),
         ]);
         if (cancelled) return;
-        const kids = rawChildren.map((c: any) => toStudent(c, feeItems));
+        const kids = rawChildren.map((c: any) => toStudent(c, rawCharges, rawItems));
         setChildren(kids);
         if (kids.length === 0) return;
         const paymentLists = await Promise.all(kids.map((c) => FeeApi.getPayments(c.id)));

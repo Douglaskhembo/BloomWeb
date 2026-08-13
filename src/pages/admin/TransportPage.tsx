@@ -8,19 +8,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Combobox } from "@/components/ui/combobox";
 import { Bus, MapPin, Users, AlertTriangle, Plus, UserPlus, Trash2, Search, Edit, X } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { TransportApi, StudentApi } from "@/services/api";
+import { TransportApi, StudentApi, StaffApi } from "@/services/api";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-const EMPTY_FORM = { name: "", driver: "", driverPhone: "", vehicle: "", capacity: "", fare: "", status: "ACTIVE", pickupPoints: [] as string[] };
+const EMPTY_FORM = { name: "", driverUuid: "", vehicle: "", capacity: "", fare: "", status: "ACTIVE", pickupPoints: [] as string[] };
 
 const TransportPage = () => {
   const [routes, setRoutes] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
 
   const [routeDialogOpen, setRouteDialogOpen] = useState(false);
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
@@ -47,14 +49,24 @@ const TransportPage = () => {
   useEffect(() => {
     loadAll();
     StudentApi.getAll().then(d => setStudents(Array.isArray(d) ? d : []));
+    StaffApi.getAll().then(d => setStaff(Array.isArray(d) ? d : []));
   }, []);
 
   // ── Route form ────────────────────────────────────────────────────────────
 
+  const drivers = useMemo(() => staff.filter(s => (s.staffRole?.name ?? "").toLowerCase() === "driver"), [staff]);
+  const driverOptions = useMemo(() => drivers.map(s => ({
+    value: s.uuid,
+    label: `${s.firstName} ${s.lastName}${s.staffId ? ` (${s.staffId})` : ""}`,
+    keywords: `${s.firstName} ${s.lastName} ${s.staffId ?? ""} ${s.phone ?? ""}`,
+  })), [drivers]);
+
+  const selectDriver = (uuid: string) => setRouteForm(f => ({ ...f, driverUuid: uuid }));
+
   const openAdd = () => { setEditingRoute(null); setRouteForm({ ...EMPTY_FORM }); setNewPickup(""); setRouteDialogOpen(true); };
   const openEdit = (r: any) => {
     setEditingRoute(r);
-    setRouteForm({ name: r.name, driver: r.driver ?? "", driverPhone: r.driverPhone ?? "", vehicle: r.vehicle ?? "", capacity: String(r.capacity), fare: String(r.fare), status: r.status, pickupPoints: [...(r.pickupPoints ?? [])] });
+    setRouteForm({ name: r.name, driverUuid: r.driver?.uuid ?? "", vehicle: r.vehicle ?? "", capacity: String(r.capacity), fare: String(r.fare), status: r.status, pickupPoints: [...(r.pickupPoints ?? [])] });
     setNewPickup("");
     setRouteDialogOpen(true);
   };
@@ -68,7 +80,7 @@ const TransportPage = () => {
   };
 
   const handleSaveRoute = async () => {
-    if (!routeForm.name || !routeForm.driver || !routeForm.vehicle) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
+    if (!routeForm.name || !routeForm.driverUuid || !routeForm.vehicle) { Swal.fire({ icon: "error", title: "Error", text: "Please fill in all required fields", showConfirmButton: true }); return; }
     if (routeForm.pickupPoints.length === 0) { Swal.fire({ icon: "error", title: "Error", text: "Add at least one pickup point", showConfirmButton: true }); return; }
     const payload = { ...routeForm, capacity: Number(routeForm.capacity) || 0, fare: Number(routeForm.fare) || 0 };
     try {
@@ -185,8 +197,8 @@ const TransportPage = () => {
                       <TableCell className="font-medium">{r.name}</TableCell>
                       <TableCell className="font-mono text-xs">{r.vehicle}</TableCell>
                       <TableCell>
-                        <p className="text-sm">{r.driver}</p>
-                        <p className="text-xs text-muted-foreground">{r.driverPhone}</p>
+                        <p className="text-sm">{r.driver ? `${r.driver.firstName} ${r.driver.lastName}` : "—"}</p>
+                        <p className="text-xs text-muted-foreground">{r.driver?.phone}</p>
                       </TableCell>
                       <TableCell>{r.capacity}</TableCell>
                       <TableCell>{Number(r.fare).toLocaleString()}</TableCell>
@@ -290,12 +302,19 @@ const TransportPage = () => {
                 <Input value={routeForm.name} onChange={e => setRouteForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Route A - Westlands" />
               </div>
               <div className="space-y-2">
-                <Label>Driver Name <span className="text-destructive">*</span></Label>
-                <Input value={routeForm.driver} onChange={e => setRouteForm(f => ({ ...f, driver: e.target.value }))} placeholder="e.g. John Mutiso" />
+                <Label>Driver <span className="text-destructive">*</span></Label>
+                <Combobox
+                  options={driverOptions}
+                  value={routeForm.driverUuid}
+                  onChange={selectDriver}
+                  placeholder="Select driver"
+                  searchPlaceholder="Search drivers..."
+                  emptyText="No staff with role 'Driver' found."
+                />
               </div>
               <div className="space-y-2">
                 <Label>Driver Phone</Label>
-                <Input value={routeForm.driverPhone} onChange={e => setRouteForm(f => ({ ...f, driverPhone: e.target.value }))} placeholder="+254..." />
+                <Input value={drivers.find(s => s.uuid === routeForm.driverUuid)?.phone ?? ""} disabled placeholder="Auto-filled from driver" />
               </div>
               <div className="space-y-2">
                 <Label>Vehicle Reg <span className="text-destructive">*</span></Label>

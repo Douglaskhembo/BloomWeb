@@ -55,6 +55,8 @@ const classTeacherAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/at
 const attendanceReportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/reports`, headers: { 'Content-Type': 'application/json' } }));
 const payrollAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payroll`,    headers: { 'Content-Type': 'application/json' } }));
 const commAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/communication`, headers: { 'Content-Type': 'application/json' } }));
+const timetablePeriodAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/periods`, headers: { 'Content-Type': 'application/json' } }));
+const timetableEntryAPI  = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/entries`, headers: { 'Content-Type': 'application/json' } }));
 
 export const authAPI = {
   login: (data: { username: string; password: string }) => _authAPI.post('/login', data),
@@ -427,6 +429,14 @@ export const FeeApi = {
     await feesAPI.delete(`/items/${id}`);
   },
 
+  // Student fee charges (persisted, itemized — the "what should this student currently pay" source of truth)
+  getCurrentCharges: async (params?: { admissionNumber?: string; grade?: string }): Promise<any[]> => {
+    try {
+      const res = await feesAPI.get('/charges', { params });
+      return unwrapList(res);
+    } catch { return []; }
+  },
+
   // Fee payments
   getPayments: async (studentId?: string): Promise<any[]> => {
     try {
@@ -688,6 +698,29 @@ export const AttendanceReportApi = {
   getMyChildren: async (params: { parentUserUuid: string; from: string; to: string }): Promise<any[]> => {
     try { return unwrapList(await attendanceReportAPI.get('/my-children', { params })); } catch { return []; }
   },
+};
+
+export const TimetableApi = {
+  // Shared school-wide period grid
+  getPeriods: async (): Promise<any[]> => {
+    try { return unwrapList(await timetablePeriodAPI.get('')); } catch { return []; }
+  },
+  createPeriod: async (data: any): Promise<any> => unwrap(await timetablePeriodAPI.post('', data)),
+  updatePeriod: async (uuid: string, data: any): Promise<any> => unwrap(await timetablePeriodAPI.put(`/${uuid}`, data)),
+  deletePeriod: async (uuid: string): Promise<void> => { await timetablePeriodAPI.delete(`/${uuid}`); },
+
+  // Entries
+  getGrid: async (gradeLevelUuid: string, stream: string): Promise<any[]> => {
+    try { return unwrapList(await timetableEntryAPI.get('/grid', { params: { gradeLevelUuid, stream } })); } catch { return []; }
+  },
+  getMine: async (teacherUuid: string): Promise<any[]> => {
+    try { return unwrapList(await timetableEntryAPI.get('/mine', { params: { teacherUuid } })); } catch { return []; }
+  },
+  getAvailableTeachers: async (subjectUuid: string, dayOfWeek: string, periodUuid: string, excludeEntryUuid?: string): Promise<any[]> => {
+    try { return unwrapList(await timetableEntryAPI.get('/available-teachers', { params: { subjectUuid, dayOfWeek, periodUuid, excludeEntryUuid } })); } catch { return []; }
+  },
+  assign: async (data: any): Promise<any> => unwrap(await timetableEntryAPI.post('', data)),
+  unassign: async (uuid: string): Promise<void> => { await timetableEntryAPI.delete(`/${uuid}`); },
 };
 
 export const PayrollApi = {

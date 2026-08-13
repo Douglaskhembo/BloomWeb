@@ -17,6 +17,7 @@ export interface Student {
   lastName: string;
   grade: string;
   stream: string;
+  boarderStatus: string;
   gender: string;
   status: string;
   parentName: string;
@@ -37,6 +38,7 @@ export interface Application {
   lastName: string;
   grade: string;
   stream: string;
+  boarderStatus: string;
   gender: string;
   parentName: string;
   parentRelationship: string;
@@ -139,6 +141,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       grade: app.grade,
       gradeLevelUuid: app.gradeLevelUuid || null,
       stream: app.stream || null,
+      boarderStatus: app.boarderStatus || null,
       parentName: app.parentName,
       parentRelationship: app.parentRelationship,
       parentPhone: app.parentPhone,
@@ -168,6 +171,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       birthCertificateNumber: data.birthCertificateNumber ?? s.birthCertificateNumber,
       grade: data.grade ?? s.grade,
       stream: data.stream ?? s.stream,
+      boarderStatus: data.boarderStatus ?? s.boarderStatus,
       parentName: data.parentName ?? s.parentName,
       parentPhone: data.parentPhone ?? s.parentPhone,
       parentEmail: data.parentEmail ?? s.parentEmail,

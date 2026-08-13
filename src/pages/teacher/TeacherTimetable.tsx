@@ -1,69 +1,47 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useAuth } from "@/context/AuthContext";
+import { StaffApi, TimetableApi } from "@/services/api";
 
-const timeSlots = [
-  { label: "8:00 - 8:40", isBreak: false },
-  { label: "8:40 - 9:20", isBreak: false },
-  { label: "9:20 - 10:00", isBreak: false },
-  { label: "10:00 - 10:30", isBreak: true, breakLabel: "BREAK" },
-  { label: "10:30 - 11:10", isBreak: false },
-  { label: "11:10 - 11:50", isBreak: false },
-  { label: "11:50 - 12:30", isBreak: false },
-  { label: "12:30 - 1:30", isBreak: true, breakLabel: "LUNCH" },
-  { label: "1:30 - 2:10", isBreak: false },
-  { label: "2:10 - 2:50", isBreak: false },
-];
-
-const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-
-// Sample weekly assignments for the teacher
-const schedule: Record<string, Record<string, { subject: string; class: string; room: string } | null>> = {
-  "Monday": {
-    "8:00 - 8:40": { subject: "Mathematics", class: "Grade 5A", room: "Room 12" },
-    "8:40 - 9:20": { subject: "Mathematics", class: "Grade 5B", room: "Room 14" },
-    "9:20 - 10:00": { subject: "Mathematics", class: "Grade 3A", room: "Room 8" },
-    "10:30 - 11:10": { subject: "Mathematics", class: "Grade 4A", room: "Room 10" },
-    "11:10 - 11:50": { subject: "Mathematics", class: "Grade 6A", room: "Room 16" },
-    "1:30 - 2:10": { subject: "Mathematics", class: "Grade 7A", room: "Room 18" },
-  },
-  "Tuesday": {
-    "8:00 - 8:40": { subject: "Mathematics", class: "Grade 3A", room: "Room 8" },
-    "8:40 - 9:20": { subject: "Mathematics", class: "Grade 4A", room: "Room 10" },
-    "10:30 - 11:10": { subject: "Mathematics", class: "Grade 5A", room: "Room 12" },
-    "11:10 - 11:50": { subject: "Mathematics", class: "Grade 7A", room: "Room 18" },
-    "1:30 - 2:10": { subject: "Mathematics", class: "Grade 6A", room: "Room 16" },
-  },
-  "Wednesday": {
-    "8:00 - 8:40": { subject: "Mathematics", class: "Grade 6A", room: "Room 16" },
-    "9:20 - 10:00": { subject: "Mathematics", class: "Grade 5B", room: "Room 14" },
-    "10:30 - 11:10": { subject: "Mathematics", class: "Grade 3A", room: "Room 8" },
-    "1:30 - 2:10": { subject: "Mathematics", class: "Grade 4A", room: "Room 10" },
-    "2:10 - 2:50": { subject: "Mathematics", class: "Grade 5A", room: "Room 12" },
-  },
-  "Thursday": {
-    "8:00 - 8:40": { subject: "Mathematics", class: "Grade 5B", room: "Room 14" },
-    "8:40 - 9:20": { subject: "Mathematics", class: "Grade 6A", room: "Room 16" },
-    "9:20 - 10:00": { subject: "Mathematics", class: "Grade 4A", room: "Room 10" },
-    "10:30 - 11:10": { subject: "Mathematics", class: "Grade 7A", room: "Room 18" },
-    "11:10 - 11:50": { subject: "Mathematics", class: "Grade 5A", room: "Room 12" },
-  },
-  "Friday": {
-    "8:00 - 8:40": { subject: "Mathematics", class: "Grade 7A", room: "Room 18" },
-    "8:40 - 9:20": { subject: "Mathematics", class: "Grade 3A", room: "Room 8" },
-    "10:30 - 11:10": { subject: "Mathematics", class: "Grade 6A", room: "Room 16" },
-    "11:10 - 11:50": { subject: "Mathematics", class: "Grade 4A", room: "Room 10" },
-    "1:30 - 2:10": { subject: "Mathematics", class: "Grade 5B", room: "Room 14" },
-  },
+const DAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"] as const;
+const DAY_LABELS: Record<string, string> = {
+  MONDAY: "Monday", TUESDAY: "Tuesday", WEDNESDAY: "Wednesday", THURSDAY: "Thursday", FRIDAY: "Friday",
 };
 
+// LocalTime comes back as "08:00:00" — trim to "8:00" for display.
+const formatTime = (t: string) => {
+  const [h, m] = t.split(":");
+  return `${parseInt(h, 10)}:${m}`;
+};
+const periodLabel = (p: any) => `${formatTime(p.startTime)} - ${formatTime(p.endTime)}`;
+
 const TeacherTimetable = () => {
+  const { user } = useAuth();
+  const [staff, setStaff] = useState<any | null>(null);
+  const [periods, setPeriods] = useState<any[]>([]);
+  const [entries, setEntries] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user?.profileRef) return;
+    StaffApi.getByUuid(user.profileRef).then(setStaff);
+    TimetableApi.getPeriods().then((data) => setPeriods(Array.isArray(data) ? data : []));
+  }, [user?.profileRef]);
+
+  useEffect(() => {
+    if (!staff?.uuid) return;
+    TimetableApi.getMine(staff.uuid).then((data) => setEntries(Array.isArray(data) ? data : []));
+  }, [staff?.uuid]);
+
+  const entryFor = (day: string, periodUuid: string) => entries.find((e) => e.dayOfWeek === day && e.periodUuid === periodUuid);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">My Timetable</h1>
-        <p className="text-muted-foreground">Your weekly class schedule — Term 1, 2026</p>
+        <p className="text-muted-foreground">Your weekly class schedule</p>
       </div>
 
       <Card>
@@ -82,31 +60,30 @@ const TeacherTimetable = () => {
                       <Clock className="w-3 h-3" /> Time
                     </div>
                   </TableHead>
-                  {days.map((day) => (
-                    <TableHead key={day} className="text-center min-w-[140px]">{day}</TableHead>
+                  {DAYS.map((day) => (
+                    <TableHead key={day} className="text-center min-w-[140px]">{DAY_LABELS[day]}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {timeSlots.map((slot) => (
-                  <TableRow key={slot.label} className={slot.isBreak ? "bg-muted/50" : ""}>
+                {periods.map((p) => (
+                  <TableRow key={p.uuid} className={p.breakPeriod ? "bg-muted/50" : ""}>
                     <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
-                      {slot.label}
+                      {periodLabel(p)}
                     </TableCell>
-                    {slot.isBreak ? (
-                      <TableCell colSpan={5} className="text-center">
-                        <span className="text-xs font-medium text-muted-foreground">{slot.breakLabel}</span>
+                    {p.breakPeriod ? (
+                      <TableCell colSpan={DAYS.length} className="text-center">
+                        <span className="text-xs font-medium text-muted-foreground">{p.breakLabel || "BREAK"}</span>
                       </TableCell>
                     ) : (
-                      days.map((day) => {
-                        const assignment = schedule[day]?.[slot.label];
+                      DAYS.map((day) => {
+                        const entry = entryFor(day, p.uuid);
                         return (
                           <TableCell key={day} className="text-center p-2">
-                            {assignment ? (
+                            {entry ? (
                               <div className="space-y-1">
-                                <Badge variant="outline" className="text-[10px]">{assignment.class}</Badge>
-                                <p className="text-xs font-medium">{assignment.subject}</p>
-                                <p className="text-[10px] text-muted-foreground">{assignment.room}</p>
+                                <Badge variant="outline" className="text-[10px]">{`${entry.grade} ${entry.stream}`.trim()}</Badge>
+                                <p className="text-xs font-medium">{entry.subjectName}</p>
                               </div>
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
@@ -117,6 +94,9 @@ const TeacherTimetable = () => {
                     )}
                   </TableRow>
                 ))}
+                {periods.length === 0 && (
+                  <TableRow><TableCell colSpan={DAYS.length + 1} className="text-center text-muted-foreground py-8">No timetable has been set up yet.</TableCell></TableRow>
+                )}
               </TableBody>
             </Table>
           </div>

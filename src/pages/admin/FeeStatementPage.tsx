@@ -21,7 +21,7 @@ const fmt = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 const fmtD = (iso: string) => new Date(iso).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
 const fmtDT = (iso: string) => new Date(iso).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" });
 
-const TERMS = ["Term 1", "Term 2", "Term 3"] as const;
+const TERMS = ["Term 1", "Term 2", "Term 3", "Full Year"] as const;
 const CURRENT_YEAR = new Date().getFullYear();
 const ACADEMIC_YEARS: number[] = Array.from({ length: 5 }, (_, idx) => CURRENT_YEAR + 1 - idx);
 
@@ -44,6 +44,7 @@ const FeeStatementPage = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [feeItems, setFeeItems] = useState<any[]>([]);
   const [structures, setStructures] = useState<any[]>([]);
+  const [charges, setCharges] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,15 +64,17 @@ const FeeStatementPage = () => {
     (async () => {
       setLoading(true);
       try {
-        const [rawStudents, items, rawStructures] = await Promise.all([
+        const [rawStudents, items, rawStructures, rawCharges] = await Promise.all([
           StudentApi.getAll(),
           FeeApi.getItems(),
           FeeApi.getStructures(),
+          FeeApi.getCurrentCharges(),
         ]);
-        const mapped = rawStudents.map((s: any) => toStudent(s, items));
+        const mapped = rawStudents.map((s: any) => toStudent(s, rawCharges, items));
         setStudents(mapped);
         setFeeItems(items);
         setStructures(rawStructures);
+        setCharges(rawCharges);
         if (mapped.length > 0) setSelectedId(mapped[0].id);
       } catch (err) {
         Swal.fire({
@@ -157,7 +160,14 @@ const FeeStatementPage = () => {
       }];
     }
     return Array.from(latestByPeriod.values()).map((s) => {
-      const amount = (s.lines ?? []).reduce((a: number, l: any) => a + (l.enabled ? Number(l.amount) || 0 : 0), 0);
+      // Prefer the persisted, eligibility-correct StudentFeeCharge rows generated for this exact
+      // structure version; only fall back to summing the structure's own lines (today's blanket
+      // "every student in the grade owes every enabled line" assumption) if none were found —
+      // belt-and-braces for a structure the backend hasn't backfilled charges for yet.
+      const studentCharges = charges.filter((c) => c.admissionNumber === student.id && c.feeStructureUuid === s.uuid);
+      const amount = studentCharges.length > 0
+        ? studentCharges.reduce((a: number, c: any) => a + (Number(c.amount) || 0), 0)
+        : (s.lines ?? []).reduce((a: number, l: any) => a + (l.enabled ? Number(l.amount) || 0 : 0), 0);
       return {
         id: s.uuid,
         date: s.reviewedAt ?? s.updatedAt,
@@ -170,7 +180,7 @@ const FeeStatementPage = () => {
         balance: 0,
       };
     });
-  }, [student, structures, feeItems, payments]);
+  }, [student, structures, feeItems, payments, charges]);
 
   const creditLines = useMemo<LedgerEntry[]>(() => payments.map((p) => ({
     id: p.id,

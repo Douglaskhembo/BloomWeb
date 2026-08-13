@@ -27,14 +27,24 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+// SweetAlert2 renders its own portal directly under document.body, outside this Dialog's DOM
+// subtree. Radix treats any pointerdown/focus that lands outside the Content node as an "outside"
+// interaction and closes the dialog — so clicking a Swal button (e.g. dismissing a validation error)
+// would otherwise close the dialog underneath it and discard the form. Ignore interactions inside
+// a swal2 container so the dialog stays open and editable.
+const isSwalTarget = (e: { target: EventTarget | null }) =>
+  !!(e.target as HTMLElement | null)?.closest?.(".swal2-container");
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      onPointerDownOutside={(e) => { if (isSwalTarget(e)) { e.preventDefault(); return; } onPointerDownOutside?.(e); }}
+      onInteractOutside={(e) => { if (isSwalTarget(e)) { e.preventDefault(); return; } onInteractOutside?.(e); }}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className,

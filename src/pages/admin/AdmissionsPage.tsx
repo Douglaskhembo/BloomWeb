@@ -54,7 +54,7 @@ const AdmissionsPage = () => {
 
   const [form, setForm] = useState({
     firstName: "", lastName: "", gender: "", dob: "", birthCertificateNumber: "",
-    grade: "", gradeLevelUuid: "", stream: "",
+    grade: "", gradeLevelUuid: "", stream: "", boarderStatus: "",
     parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "",
     address: "", medicalNotes: "", previousSchool: "", admissionType: "New",
   });
@@ -64,7 +64,7 @@ const AdmissionsPage = () => {
   const selectedGradeStreams = grades.find((g) => g.uuid === form.gradeLevelUuid)?.streamNames ?? [];
 
   const resetForm = () => {
-    setForm({ firstName: "", lastName: "", gender: "", dob: "", birthCertificateNumber: "", grade: "", gradeLevelUuid: "", stream: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
+    setForm({ firstName: "", lastName: "", gender: "", dob: "", birthCertificateNumber: "", grade: "", gradeLevelUuid: "", stream: "", boarderStatus: "", parentName: "", parentRelationship: "", parentPhone: "", parentEmail: "", address: "", medicalNotes: "", previousSchool: "", admissionType: "New" });
     setDocuments([]);
     setSelectedDocType("");
     setStep(1);
@@ -211,6 +211,16 @@ const AdmissionsPage = () => {
                     </Select>
                   </div>
                 )}
+                <div className="space-y-2">
+                  <Label>Day Scholar / Boarder</Label>
+                  <Select value={form.boarderStatus} onValueChange={v => setForm({ ...form, boarderStatus: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DAY_SCHOLAR">Day Scholar</SelectItem>
+                      <SelectItem value="BOARDER">Boarder</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Separator className="col-span-full" />
                 <div className="col-span-full"><p className="text-sm font-medium text-muted-foreground mb-4">Parent / Guardian Information</p></div>
                 <div className="space-y-2">

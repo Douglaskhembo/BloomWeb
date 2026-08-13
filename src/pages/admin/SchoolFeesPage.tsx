@@ -161,13 +161,14 @@ const SchoolFeesPage = () => {
     (async () => {
       setLoading(true);
       try {
-        const [rawStudents, rawItems, rawPayments] = await Promise.all([
+        const [rawStudents, rawCharges, rawItems, rawPayments] = await Promise.all([
           StudentApi.getAll(),
+          FeeApi.getCurrentCharges(),
           FeeApi.getItems(),
           FeeApi.getPayments(),
         ]);
         if (cancelled) return;
-        setStudents(rawStudents.map((s: any) => toStudent(s, rawItems)));
+        setStudents(rawStudents.map((s: any) => toStudent(s, rawCharges, rawItems)));
         setPayments(rawPayments.map(toPayment));
       } catch (err) {
         Swal.fire({ icon: "error", title: "Error", text: `Failed to load fee data — ${getBackendErrorMessage(err)}`, showConfirmButton: true });

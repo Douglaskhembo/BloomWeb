@@ -172,6 +172,18 @@ const StudentsPage = () => {
                   {isEditing ? <Input value={editData.stream} onChange={e => setEditData({ ...editData, stream: e.target.value })} /> : <p className="font-medium mt-1">{selectedStudent.stream || "—"}</p>}
                 </div>
                 <div>
+                  <Label className="text-muted-foreground text-xs">Day Scholar / Boarder</Label>
+                  {isEditing ? (
+                    <Select value={editData.boarderStatus ?? ""} onValueChange={v => setEditData({ ...editData, boarderStatus: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAY_SCHOLAR">Day Scholar</SelectItem>
+                        <SelectItem value="BOARDER">Boarder</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : <p className="font-medium mt-1">{selectedStudent.boarderStatus === "BOARDER" ? "Boarder" : selectedStudent.boarderStatus === "DAY_SCHOLAR" ? "Day Scholar" : "—"}</p>}
+                </div>
+                <div>
                   <Label className="text-muted-foreground text-xs">Status</Label>
                   <div className="mt-1"><Badge variant={statusColors[selectedStudent.status] ?? "outline"}>{statusLabels[selectedStudent.status] ?? selectedStudent.status}</Badge></div>
                 </div>
