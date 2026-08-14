@@ -44,6 +44,7 @@ const schoolAPI  = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/school`
 const leaveAPI   = applyAuthInterceptor(axios.create({ baseURL: `${BASE}`,            headers: { 'Content-Type': 'application/json' } }));
 const feesAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/fees`,       headers: { 'Content-Type': 'application/json' } }));
 const subjectAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/subjects`,   headers: { 'Content-Type': 'application/json' } }));
+const gradingAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/grading-structures`, headers: { 'Content-Type': 'application/json' } }));
 const staffRoleAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/staff-roles`, headers: { 'Content-Type': 'application/json' } }));
 const holidayAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/holidays`, headers: { 'Content-Type': 'application/json' } }));
 const academicCalendarAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/academic-calendar`, headers: { 'Content-Type': 'application/json' } }));
@@ -604,6 +605,26 @@ export const SubjectApi = {
   },
   delete: async (id: number): Promise<void> => {
     await subjectAPI.delete(`/${id}`);
+  },
+};
+
+export const GradingApi = {
+  getAll: async (): Promise<any[]> => {
+    try {
+      const res = await gradingAPI.get('');
+      return unwrapList(res);
+    } catch { return []; }
+  },
+  create: async (data: { grade: string; entries: any[] }): Promise<any> => {
+    const res = await gradingAPI.post('', data);
+    return unwrap(res);
+  },
+  replaceEntries: async (uuid: string, entries: any[]): Promise<any> => {
+    const res = await gradingAPI.put(`/${uuid}`, { entries });
+    return unwrap(res);
+  },
+  delete: async (uuid: string): Promise<void> => {
+    await gradingAPI.delete(`/${uuid}`);
   },
 };
 

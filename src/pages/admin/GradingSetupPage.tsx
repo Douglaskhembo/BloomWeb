@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,11 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ArrowLeft, Plus, Pencil, Trash2, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
+import { GradingApi, SchoolApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface GradeEntry {
   label: string;
@@ -21,10 +24,14 @@ interface GradeEntry {
 }
 
 interface GradingStructure {
+  uuid: string;
   grade: string;
   entries: GradeEntry[];
 }
 
+// Real, published curriculum grading scales offered as starting templates when creating a
+// structure or resetting one — not records themselves, so they stay as constants here rather
+// than round-tripping through the backend.
 const kcseEntries: GradeEntry[] = [
   { label: "A", minScore: 80, maxScore: 100, points: 12, remark: "Excellent" },
   { label: "A-", minScore: 75, maxScore: 79, points: 11, remark: "Very Good" },
@@ -85,32 +92,49 @@ const curriculumPresets: Record<string, { name: string; entries: GradeEntry[] }>
   american: { name: "American (GPA)", entries: americanEntries },
 };
 
-const defaultEntries = kcseEntries;
-
-const gradesList = [
-  "PP1", "PP2", "Grade 1", "Grade 2", "Grade 3", "Grade 4",
-  "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9",
-];
+const toStructure = (raw: any): GradingStructure => ({
+  uuid: raw.uuid,
+  grade: raw.grade,
+  entries: (raw.entries ?? []).map((e: any) => ({
+    label: e.label, minScore: e.minScore, maxScore: e.maxScore, points: e.points, remark: e.remark ?? "",
+  })),
+});
 
 const GradingSetupPage = () => {
   const navigate = useNavigate();
-  const [structures, setStructures] = useState<GradingStructure[]>([
-    { grade: "Grade 7", entries: [...defaultEntries] },
-    { grade: "Grade 8", entries: [...defaultEntries] },
-  ]);
+  const [structures, setStructures] = useState<GradingStructure[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [gradesList, setGradesList] = useState<string[]>([]);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
-  const [newGrade, setNewGrade] = useState("");
+  const [newGrades, setNewGrades] = useState<string[]>([]);
   const [newPreset, setNewPreset] = useState<string>("kcse");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [copyTargetGrade, setCopyTargetGrade] = useState("");
+  const [copyTargetGrades, setCopyTargetGrades] = useState<string[]>([]);
   const [entryForm, setEntryForm] = useState<GradeEntry>({
     label: "", minScore: 0, maxScore: 100, points: 0, remark: "",
   });
   const [entriesPage, setEntriesPage] = useState(1);
   const [entriesPerPage, setEntriesPerPage] = useState(10);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const raw = await GradingApi.getAll();
+      setStructures(raw.map(toStructure));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    SchoolApi.getGradeLevels().then((data) =>
+      setGradesList(data.filter((g: any) => g.status === "ACTIVE").map((g: any) => g.name))
+    );
+  }, []);
 
   const currentStructure = structures.find((s) => s.grade === selectedGrade);
   const gradesWithStructure = structures.map((s) => s.grade);
@@ -120,31 +144,49 @@ const GradingSetupPage = () => {
   const totalEntryPages = Math.ceil(currentEntries.length / entriesPerPage);
   const pagedEntries = currentEntries.slice((entriesPage - 1) * entriesPerPage, entriesPage * entriesPerPage);
 
-  const handleAddGrade = () => {
-    if (!newGrade) return;
+  const handleAddGrade = async () => {
+    if (newGrades.length === 0) return;
     const preset = curriculumPresets[newPreset] ?? curriculumPresets.kcse;
-    setStructures((prev) => [...prev, { grade: newGrade, entries: preset.entries.map((e) => ({ ...e })) }]);
-    Swal.fire({ title: "Grading added", text: `${preset.name} grading structure created for ${newGrade}.`, icon: "success", showConfirmButton: true });
-    setNewGrade("");
-    setDialogOpen(false);
+    try {
+      const results = await Promise.allSettled(
+        newGrades.map((grade) => GradingApi.create({ grade, entries: preset.entries }))
+      );
+      await load();
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        Swal.fire({ icon: "warning", title: "Partially created", text: `${results.length - failed} of ${results.length} grading structure(s) created — the rest failed (they may already exist).`, showConfirmButton: true });
+      } else {
+        Swal.fire({ title: "Grading added", text: `${preset.name} grading structure created for ${newGrades.length} grade(s).`, icon: "success", showConfirmButton: true });
+      }
+      setNewGrades([]);
+      setDialogOpen(false);
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to create grading structure", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
-  const handleApplyPreset = (presetKey: string) => {
-    if (!selectedGrade) return;
+  const handleApplyPreset = async (presetKey: string) => {
+    if (!currentStructure) return;
     const preset = curriculumPresets[presetKey];
     if (!preset) return;
-    setStructures((prev) =>
-      prev.map((s) =>
-        s.grade === selectedGrade ? { ...s, entries: preset.entries.map((e) => ({ ...e })) } : s
-      )
-    );
-    Swal.fire({ title: "Preset applied", text: `${preset.name} applied to ${selectedGrade}.`, icon: "success", showConfirmButton: true });
+    try {
+      await GradingApi.replaceEntries(currentStructure.uuid, preset.entries);
+      await load();
+      Swal.fire({ title: "Preset applied", text: `${preset.name} applied to ${selectedGrade}.`, icon: "success", showConfirmButton: true });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to apply preset", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
-  const handleDeleteGrade = (grade: string) => {
-    setStructures((prev) => prev.filter((s) => s.grade !== grade));
-    if (selectedGrade === grade) setSelectedGrade(null);
-    Swal.fire({ title: "Removed", text: `Grading structure for ${grade} has been removed.`, icon: "success", showConfirmButton: true });
+  const handleDeleteGrade = async (structure: GradingStructure) => {
+    try {
+      await GradingApi.delete(structure.uuid);
+      await load();
+      if (selectedGrade === structure.grade) setSelectedGrade(null);
+      Swal.fire({ title: "Removed", text: `Grading structure for ${structure.grade} has been removed.`, icon: "success", showConfirmButton: true });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to remove grading structure", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
   const handleOpenAddEntry = () => {
@@ -159,42 +201,56 @@ const GradingSetupPage = () => {
     setEntryDialogOpen(true);
   };
 
-  const handleSaveEntry = () => {
-    if (!entryForm.label || !selectedGrade) return;
-    setStructures((prev) =>
-      prev.map((s) => {
-        if (s.grade !== selectedGrade) return s;
-        const entries = [...s.entries];
-        if (editingIndex !== null) {
-          entries[editingIndex] = { ...entryForm };
-        } else {
-          entries.push({ ...entryForm });
-        }
-        entries.sort((a, b) => b.minScore - a.minScore);
-        return { ...s, entries };
-      })
-    );
-    Swal.fire({ title: editingIndex !== null ? "Entry updated" : "Entry added", icon: "success", showConfirmButton: true });
-    setEntryDialogOpen(false);
+  const handleSaveEntry = async () => {
+    if (!entryForm.label || !currentStructure) return;
+    const entries = [...currentStructure.entries];
+    if (editingIndex !== null) {
+      entries[editingIndex] = { ...entryForm };
+    } else {
+      entries.push({ ...entryForm });
+    }
+    entries.sort((a, b) => b.minScore - a.minScore);
+    try {
+      await GradingApi.replaceEntries(currentStructure.uuid, entries);
+      await load();
+      Swal.fire({ title: editingIndex !== null ? "Entry updated" : "Entry added", icon: "success", showConfirmButton: true });
+      setEntryDialogOpen(false);
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to save entry", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
-  const handleDeleteEntry = (index: number) => {
-    if (!selectedGrade) return;
-    setStructures((prev) =>
-      prev.map((s) =>
-        s.grade === selectedGrade ? { ...s, entries: s.entries.filter((_, i) => i !== index) } : s
-      )
-    );
+  const handleDeleteEntry = async (index: number) => {
+    if (!currentStructure) return;
+    const entries = currentStructure.entries.filter((_, i) => i !== index);
+    try {
+      await GradingApi.replaceEntries(currentStructure.uuid, entries);
+      await load();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to delete entry", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
-  const handleCopyStructure = () => {
-    if (!selectedGrade || !copyTargetGrade) return;
+  const handleCopyStructure = async () => {
+    if (!selectedGrade || copyTargetGrades.length === 0) return;
     const source = structures.find((s) => s.grade === selectedGrade);
     if (!source) return;
-    setStructures((prev) => [...prev, { grade: copyTargetGrade, entries: source.entries.map((e) => ({ ...e })) }]);
-    Swal.fire({ title: "Copied", text: `Grading structure copied from ${selectedGrade} to ${copyTargetGrade}.`, icon: "success", showConfirmButton: true });
-    setCopyTargetGrade("");
-    setCopyDialogOpen(false);
+    try {
+      const results = await Promise.allSettled(
+        copyTargetGrades.map((grade) => GradingApi.create({ grade, entries: source.entries }))
+      );
+      await load();
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        Swal.fire({ icon: "warning", title: "Partially copied", text: `${results.length - failed} of ${results.length} grade(s) updated — the rest failed (they may already exist).`, showConfirmButton: true });
+      } else {
+        Swal.fire({ title: "Copied", text: `Grading structure copied from ${selectedGrade} to ${copyTargetGrades.length} grade(s).`, icon: "success", showConfirmButton: true });
+      }
+      setCopyTargetGrades([]);
+      setCopyDialogOpen(false);
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Failed to copy grading structure", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
   };
 
   // Grade detail view
@@ -319,19 +375,19 @@ const GradingSetupPage = () => {
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle>Copy Grading Structure</DialogTitle>
-              <DialogDescription>Copy {selectedGrade}'s grading to another grade</DialogDescription>
+              <DialogDescription>Copy {selectedGrade}'s grading to one or more grades</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label className="text-xs">Target Grade</Label>
-                <Select value={copyTargetGrade} onValueChange={setCopyTargetGrade}>
-                  <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                  <SelectContent>
-                    {gradesWithoutStructure.map((g) => (
-                      <SelectItem key={g} value={g}>{g}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs">Target Grade(s)</Label>
+                <MultiSelect
+                  options={gradesWithoutStructure}
+                  selected={copyTargetGrades}
+                  onChange={setCopyTargetGrades}
+                  placeholder="Select grade(s)..."
+                  searchPlaceholder="Search grades..."
+                  allLabel="All Grades"
+                />
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>Cancel</Button>
@@ -362,48 +418,58 @@ const GradingSetupPage = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {structures.map((s) => (
-          <Card key={s.grade} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setSelectedGrade(s.grade)}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="font-semibold">{s.grade}</h3>
-                  <p className="text-xs text-muted-foreground mt-1">{s.entries.length} grade boundaries</p>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {s.entries.slice(0, 6).map((e) => (
-                      <Badge key={e.label} variant="outline" className="text-[10px]">{e.label}</Badge>
-                    ))}
-                    {s.entries.length > 6 && <Badge variant="secondary" className="text-[10px]">+{s.entries.length - 6}</Badge>}
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading grading structures…</p>
+      ) : structures.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            No grading structures yet. Click "Add Grade" to create one from a curriculum preset.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {structures.map((s) => (
+            <Card key={s.uuid} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setSelectedGrade(s.grade)}>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-semibold">{s.grade}</h3>
+                    <p className="text-xs text-muted-foreground mt-1">{s.entries.length} grade boundaries</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {s.entries.slice(0, 6).map((e) => (
+                        <Badge key={e.label} variant="outline" className="text-[10px]">{e.label}</Badge>
+                      ))}
+                      {s.entries.length > 6 && <Badge variant="secondary" className="text-[10px]">+{s.entries.length - 6}</Badge>}
+                    </div>
                   </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteGrade(s); }}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteGrade(s.grade); }}>
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Add Grade Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Add Grading Structure</DialogTitle>
-            <DialogDescription>Select a grade and a curriculum preset to start from</DialogDescription>
+            <DialogDescription>Select one or more grades and a curriculum preset to start from</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs">Grade Level</Label>
-              <Select value={newGrade} onValueChange={setNewGrade}>
-                <SelectTrigger><SelectValue placeholder="Select grade" /></SelectTrigger>
-                <SelectContent>
-                  {gradesWithoutStructure.map((g) => (
-                    <SelectItem key={g} value={g}>{g}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs">Grade Level(s)</Label>
+              <MultiSelect
+                options={gradesWithoutStructure}
+                selected={newGrades}
+                onChange={setNewGrades}
+                placeholder="Select grade(s)..."
+                searchPlaceholder="Search grades..."
+                allLabel="All Grades"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Curriculum Preset</Label>

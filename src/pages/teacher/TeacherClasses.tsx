@@ -11,37 +11,8 @@ import { BookOpen, Users, ArrowLeft, Save, Plus } from "lucide-react";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { useAuth } from "@/context/AuthContext";
-import { StaffApi, AssessmentApi } from "@/services/api";
+import { StaffApi, AssessmentApi, GradingApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
-
-interface GradeEntry {
-  label: string;
-  minScore: number;
-  maxScore: number;
-  points: number;
-  remark: string;
-}
-
-const defaultGradingEntries: GradeEntry[] = [
-  { label: "A", minScore: 80, maxScore: 100, points: 12, remark: "Excellent" },
-  { label: "A-", minScore: 75, maxScore: 79, points: 11, remark: "Very Good" },
-  { label: "B+", minScore: 70, maxScore: 74, points: 10, remark: "Good" },
-  { label: "B", minScore: 65, maxScore: 69, points: 9, remark: "Fairly Good" },
-  { label: "B-", minScore: 60, maxScore: 64, points: 8, remark: "Good Average" },
-  { label: "C+", minScore: 55, maxScore: 59, points: 7, remark: "Average" },
-  { label: "C", minScore: 50, maxScore: 54, points: 6, remark: "Fair" },
-  { label: "C-", minScore: 45, maxScore: 49, points: 5, remark: "Below Average" },
-  { label: "D+", minScore: 40, maxScore: 44, points: 4, remark: "Below Average" },
-  { label: "D", minScore: 35, maxScore: 39, points: 3, remark: "Weak" },
-  { label: "D-", minScore: 30, maxScore: 34, points: 2, remark: "Very Weak" },
-  { label: "E", minScore: 0, maxScore: 29, points: 1, remark: "Very Poor" },
-];
-
-const getGradeInfo = (percentage: number | null): { label: string; points: number; remark: string } | null => {
-  if (percentage === null || isNaN(percentage)) return null;
-  const entry = defaultGradingEntries.find((e) => percentage >= e.minScore && percentage <= e.maxScore);
-  return entry ? { label: entry.label, points: entry.points, remark: entry.remark } : null;
-};
 
 const terms = ["Term 1", "Term 2", "Term 3"];
 const currentYear = new Date().getFullYear();
@@ -74,11 +45,26 @@ const TeacherClasses = () => {
 
   const [studentsPage, setStudentsPage] = useState(1);
   const [studentsPerPage, setStudentsPerPage] = useState(10);
+  const [gradingStructures, setGradingStructures] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user?.profileRef) return;
     StaffApi.getByUuid(user.profileRef).then(setStaff).catch(() => setStaff(null));
   }, [user?.profileRef]);
+
+  useEffect(() => {
+    GradingApi.getAll().then(setGradingStructures);
+  }, []);
+
+  // Looks up the grade label/points/remark for a percentage using whatever grading structure is
+  // configured (Admin > Management > Grading Structure) for this class's grade — no scale is
+  // assumed here, so a grade with no structure configured just shows no grade info.
+  const getGradeInfo = (percentage: number | null, grade?: string): { label: string; points: number; remark: string } | null => {
+    if (percentage === null || isNaN(percentage) || !grade) return null;
+    const structure = gradingStructures.find((s) => s.grade === grade);
+    const entry = structure?.entries?.find((e: any) => percentage >= e.minScore && percentage <= e.maxScore);
+    return entry ? { label: entry.label, points: entry.points, remark: entry.remark } : null;
+  };
 
   useEffect(() => {
     if (!staff?.uuid) return;
@@ -369,7 +355,7 @@ const TeacherClasses = () => {
                     <TableBody>
                       {pagedRows.map((r, i) => {
                         const pct = r.score === null || r.score === undefined ? null : (r.score / (selectedAssessment?.maxScore || 100)) * 100;
-                        const gradeInfo = getGradeInfo(pct);
+                        const gradeInfo = getGradeInfo(pct, selectedClass.grade);
                         return (
                           <TableRow key={r.studentUuid}>
                             <TableCell className="text-muted-foreground text-xs">{(studentsPage - 1) * studentsPerPage + i + 1}</TableCell>
