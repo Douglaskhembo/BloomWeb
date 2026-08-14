@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarDays, DollarSign, BookOpen, Calculator, Award, Wallet, Fingerprint, IdCard, Calendar } from "lucide-react";
+import { CalendarDays, DollarSign, BookOpen, Calculator, Award, Wallet, Fingerprint, IdCard, Calendar, CalendarClock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { LeaveApi, FeeApi, SubjectApi, StaffRoleApi, PayrollApi, StaffApi, DeviceApi, HolidayApi } from "@/services/api";
+import { LeaveApi, FeeApi, SubjectApi, StaffRoleApi, PayrollApi, StaffApi, DeviceApi, HolidayApi, AcademicCalendarApi } from "@/services/api";
 import { usePayroll } from "@/context/PayrollContext";
 
 interface CardCounts { active: number; total: number; }
@@ -31,6 +31,12 @@ const ManagementPage = () => {
     StaffRoleApi.getAll().then((rows) => setCounts((c) => ({ ...c, staffRoles: countActive(rows) })));
     DeviceApi.getAll().then((rows) => setCounts((c) => ({ ...c, biometrics: countActive(rows) })));
     HolidayApi.getAll().then((rows) => setCounts((c) => ({ ...c, holidays: countActive(rows) })));
+    Promise.all([AcademicCalendarApi.getTermPeriods(), AcademicCalendarApi.getEvents()]).then(([terms, events]) => {
+      setCounts((c) => ({
+        ...c,
+        academicCalendar: { active: terms.length + events.filter((e) => e.active).length, total: terms.length + events.length },
+      }));
+    });
     StaffApi.getAll().then(setStaffList).catch(() => setStaffList([]));
 
     Promise.all([
@@ -149,6 +155,16 @@ const ManagementPage = () => {
       description: "Manage the dates leave requests treat as non-working days",
       counts: counts.holidays ?? emptyCounts,
       totalLabel: "holidays",
+    },
+    {
+      to: "/admin/setup-academic-calendar",
+      icon: CalendarClock,
+      iconBg: "bg-cyan-500/10",
+      iconColor: "text-cyan-600",
+      title: "Academic Calendar",
+      description: "Set term dates and school events so the current term is detected automatically",
+      counts: counts.academicCalendar ?? emptyCounts,
+      totalLabel: "entries",
     },
   ];
 

@@ -45,6 +45,7 @@ import SchoolSetupPage from "./pages/admin/SchoolSetupPage";
 import SubjectsSetupPage from "./pages/admin/SubjectsSetupPage";
 import StaffRolesSetupPage from "./pages/admin/StaffRolesSetupPage";
 import HolidaysSetupPage from "./pages/admin/HolidaysSetupPage";
+import AcademicCalendarSetupPage from "./pages/admin/AcademicCalendarSetupPage";
 import PayrollSetupPage from "./pages/admin/PayrollSetupPage";
 import GradingSetupPage from "./pages/admin/GradingSetupPage";
 import StaffSalariesPage from "./pages/admin/StaffSalariesPage";
@@ -126,6 +127,7 @@ function AppRoutes() {
         <Route path="setup-subjects" element={<SubjectsSetupPage />} />
         <Route path="setup-staff-roles" element={<StaffRolesSetupPage />} />
         <Route path="setup-public-holidays" element={<HolidaysSetupPage />} />
+        <Route path="setup-academic-calendar" element={<AcademicCalendarSetupPage />} />
         <Route path="setup-payroll" element={<PayrollSetupPage />} />
         <Route path="setup-grading" element={<GradingSetupPage />} />
         <Route path="setup-biometrics" element={<BiometricsSetupPage />} />

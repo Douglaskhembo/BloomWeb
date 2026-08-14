@@ -46,6 +46,7 @@ const feesAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/fees`, 
 const subjectAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/subjects`,   headers: { 'Content-Type': 'application/json' } }));
 const staffRoleAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/staff-roles`, headers: { 'Content-Type': 'application/json' } }));
 const holidayAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/holidays`, headers: { 'Content-Type': 'application/json' } }));
+const academicCalendarAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/academic-calendar`, headers: { 'Content-Type': 'application/json' } }));
 const supplierAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/suppliers`, headers: { 'Content-Type': 'application/json' } }));
 const billsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/bills`, headers: { 'Content-Type': 'application/json' } }));
 const paymentsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payments`, headers: { 'Content-Type': 'application/json' } }));
@@ -438,6 +439,43 @@ export const HolidayApi = {
   },
   delete: async (id: number): Promise<void> => {
     await holidayAPI.delete(`/${id}`);
+  },
+};
+
+export const AcademicCalendarApi = {
+  getTermPeriods: async (): Promise<any[]> => {
+    try { return unwrapList(await academicCalendarAPI.get('/term-periods')); } catch { return []; }
+  },
+  getCurrentTerm: async (): Promise<{ academicYear: number | null; term: string | null }> => {
+    try { return unwrap(await academicCalendarAPI.get('/current-term')); } catch { return { academicYear: null, term: null }; }
+  },
+  createTermPeriod: async (data: any): Promise<any> => {
+    const res = await academicCalendarAPI.post('/term-periods', data);
+    return unwrap(res);
+  },
+  updateTermPeriod: async (id: number, data: any): Promise<any> => {
+    const res = await academicCalendarAPI.put(`/term-periods/${id}`, data);
+    return unwrap(res);
+  },
+  deleteTermPeriod: async (id: number): Promise<void> => {
+    await academicCalendarAPI.delete(`/term-periods/${id}`);
+  },
+  getEvents: async (): Promise<any[]> => {
+    try { return unwrapList(await academicCalendarAPI.get('/events')); } catch { return []; }
+  },
+  createEvent: async (data: any): Promise<any> => {
+    const res = await academicCalendarAPI.post('/events', data);
+    return unwrap(res);
+  },
+  updateEvent: async (id: number, data: any): Promise<any> => {
+    const res = await academicCalendarAPI.put(`/events/${id}`, data);
+    return unwrap(res);
+  },
+  toggleEvent: async (id: number): Promise<void> => {
+    await academicCalendarAPI.patch(`/events/${id}/toggle`);
+  },
+  deleteEvent: async (id: number): Promise<void> => {
+    await academicCalendarAPI.delete(`/events/${id}`);
   },
 };
 
