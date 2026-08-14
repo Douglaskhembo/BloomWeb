@@ -24,7 +24,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -182,6 +181,7 @@ const FeeStructureSetupPage = () => {
 
   const [feeItems, setFeeItems] = useState<ReturnType<typeof toFeeItem>[]>([]);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
+  const [schoolInfo, setSchoolInfo] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -192,7 +192,6 @@ const FeeStructureSetupPage = () => {
   const [selectedGrade, setSelectedGrade] = useState<string>("all");
   const [selectedTerm, setSelectedTerm] = useState<TermSelection>("all");
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
-  const [draftLines, setDraftLines] = useState<GradeStatementLine[] | null>(null);
   const [selectedDueDate, setSelectedDueDate] = useState("");
   const [editingRejectedId, setEditingRejectedId] = useState<string | null>(null);
   const [structures, setStructures] = useState<FeeStructureRecord[]>([]);
@@ -203,6 +202,11 @@ const FeeStructureSetupPage = () => {
   const [rejectFor, setRejectFor] = useState<FeeStructureRecord | null>(null);
   const [rejectComment, setRejectComment] = useState("");
   const [selectedApprovedId, setSelectedApprovedId] = useState<string | null>(null);
+  // In-flight guards — stop a double-click (or a slow network round trip) from firing the same
+  // submit/approve/reject request twice, which was creating duplicate pending approvals.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [isBulkActing, setIsBulkActing] = useState(false);
 
   // Table filters
   const [approverSearch, setApproverSearch] = useState("");
@@ -219,6 +223,11 @@ const FeeStructureSetupPage = () => {
   const [draftSearch, setDraftSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
+  // Set when a maker jumps from "Rejected for Correction" into Master Fee Items — narrows the
+  // items list down to exactly what that rejected structure touched, so there's no guessing which
+  // item(s) need fixing before resubmitting.
+  const [masterItemsFocus, setMasterItemsFocus] = useState<{ grade: string; term: TermKey; itemIds: Set<number> } | null>(null);
+  const [itemsSubTab, setItemsSubTab] = useState<"items" | "rejected">("items");
 
   // Table pagination
   const [rejectedPage, setRejectedPage] = useState(1);
@@ -252,6 +261,7 @@ const FeeStructureSetupPage = () => {
   useEffect(() => {
     load();
     SchoolApi.getGradeLevels().then((data) => setGradeLevels(data.map(toGradeLevelOption)));
+    SchoolApi.getInfo().then((data) => setSchoolInfo(data ?? {}));
   }, []);
 
   // Latest approved lines per grade/term, derived from the loaded structures.
@@ -281,7 +291,6 @@ const FeeStructureSetupPage = () => {
   const currentUserName = user?.userName ?? "";
   const isMaker = user?.permissions?.includes("FEES_MANAGE") ?? false;
   const isApprover = user?.permissions?.includes("FEES_APPROVE") ?? false;
-  const isReadOnly = !isMaker;
   // A submittable structure record is still always exactly one grade + one term on the backend,
   // so "all" fans out into one record per matching grade×term combo rather than a single record.
   const isAllGrades = selectedGrade === "all";
@@ -291,9 +300,9 @@ const FeeStructureSetupPage = () => {
   const targetTerms: TermKey[] = isAllTerms ? [...TERMS] : [selectedTerm as TermKey];
 
   // If the exact grade+term already has a submission sitting with the Approver, the workspace
-  // must not look like an editable, resubmittable slate for it — that's what let makers
-  // unknowingly create duplicate pending submissions. Only a rejected structure should come back
-  // to the maker for changes (loadRejectedForEditing already sets editingRejectedId for that).
+  // must not look like a resubmittable slate for it — that's what let makers unknowingly create
+  // duplicate pending submissions. Only a rejected structure should come back to the maker
+  // (prepareRejectedResubmit already sets editingRejectedId for that).
   const pendingRecord = !isAllScope ? pendingMap[selectedGrade]?.[selectedTerm as TermKey] : undefined;
   const isLockedPending = Boolean(pendingRecord) && !editingRejectedId;
 
@@ -339,16 +348,20 @@ const FeeStructureSetupPage = () => {
     [scopedItems],
   );
 
+  // What was last approved for this grade/term — the comparison target for "is there anything
+  // new to submit", not something the maker edits.
   const baseLines = useMemo(
     () => (isAllScope ? scopedBaseLines : approvedLines(selectedGrade, selectedTerm as TermKey)),
     [liveMap, selectedGrade, selectedTerm, feeItems, isAllScope, scopedBaseLines],
   );
-  // While locked on a pending combo, show exactly what was submitted (read-only) instead of a
-  // fresh editable default — nothing here is meant to be changed or resubmitted.
-  const currentLines = isLockedPending ? pendingRecord!.lines : (draftLines ?? baseLines);
+  // The Maker Workspace is read-only — it can only show what Master Fee Items currently says for
+  // this grade/term (active flag, applicable grades, per-term amount). There's no maker-side
+  // override anymore; to change what gets submitted, change it in Master Fee Items and it shows
+  // up here automatically. While locked on a pending combo, show exactly what was submitted instead.
+  const currentLines = isLockedPending ? pendingRecord!.lines : (isAllScope ? scopedBaseLines : defaultLines(selectedGrade, selectedTerm as TermKey));
   // For a grade/term with no approved structure yet (or "all" scope), baseLines is just a
   // synthetic default (derived from currently-active fee items) — comparing against it would
-  // disable the button the moment a maker's selection happens to match those defaults. In that
+  // disable the button the moment Master Fee Items happens to match those defaults. In that
   // case "dirty" should mean "something is actually selected", not "differs from the default".
   const hasApprovedBaseline = !isAllScope && Boolean(liveMap[selectedGrade]?.[selectedTerm as TermKey]?.length);
   const hasSelection = currentLines.some((line) => line.enabled);
@@ -357,41 +370,45 @@ const FeeStructureSetupPage = () => {
     : hasSelection));
   const statementTotal = currentLines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
 
-  // A "Per Term" item's single master-row amount can only stand in for one concrete term. Once
-  // "All Terms" fans a single master selection out across Term 1/2/3, that one number can no
-  // longer represent all three — so each combo must fall back to the item's own per-term amount
-  // (resolveAmount) instead of reusing whatever number happens to sit in the master row.
+  // A "Per Term" item's amount can only be shown as one concrete-term figure at a time. Once
+  // "All Terms" fans a single row out across Term 1/2/3, that one row shows the per-term
+  // breakdown instead of a single (necessarily ambiguous) figure.
   const isAmbiguousPerTermAmount = (item: ReturnType<typeof toFeeItem>) => isAllTerms && item.term === "Per Term";
 
-  // Fans the master (item-level) selection out into one set of lines per target grade×term combo.
-  // A maker override on the master row's amount only applies where it's unambiguous which term it
-  // means (see isAmbiguousPerTermAmount) — this is what actually gets submitted as separate
-  // structure records in "all" scope.
-  const linesForCombo = (grade: string, term: TermKey): GradeStatementLine[] =>
-    itemsForGrade(grade, term).map((item) => {
-      const master = currentLines.find((line) => line.itemId === item.id);
-      const canOverrideAmount = master?.enabled && !isAmbiguousPerTermAmount(item);
-      return {
-        itemId: item.id,
-        enabled: Boolean(master?.enabled),
-        amount: canOverrideAmount ? (Number(master.amount) || 0) : resolveAmount(item, term),
-      };
-    });
-
   // A combo already pending approval is skipped entirely — it must not be silently resubmitted
-  // as a duplicate; it only comes back to the maker if the approver rejects it.
+  // as a duplicate; it only comes back to the maker if the approver rejects it. A combo that's
+  // identical to what's already live/approved is skipped too — resubmitting an unchanged
+  // structure just spins up a pointless new approval cycle for nothing the approver hasn't
+  // already signed off on.
   const bulkCombos = useMemo(() => {
     if (!isAllScope) return [];
     return targetGrades
-      .flatMap((grade) => targetTerms.map((term) => ({ grade, term, lines: linesForCombo(grade, term) })))
+      .flatMap((grade) => targetTerms.map((term) => ({ grade, term, lines: defaultLines(grade, term) })))
       .filter((combo) => combo.lines.some((line) => line.enabled))
-      .filter((combo) => !pendingMap[combo.grade]?.[combo.term]);
-  }, [isAllScope, targetGrades, targetTerms, currentLines, feeItems, pendingMap]);
+      .filter((combo) => !pendingMap[combo.grade]?.[combo.term])
+      .filter((combo) => JSON.stringify(combo.lines) !== JSON.stringify(approvedLines(combo.grade, combo.term)));
+  }, [isAllScope, targetGrades, targetTerms, feeItems, pendingMap, liveMap]);
   const bulkGrandTotal = bulkCombos.reduce((sum, combo) => sum + combo.lines.filter((l) => l.enabled).reduce((s, l) => s + (Number(l.amount) || 0), 0), 0);
+  // isDirty alone doesn't mean much in "all" scope (it just means something is selected, not that
+  // any combo actually differs from what's pending/approved) — bulkCombos is the real signal there
+  // since it's already filtered down to only what would actually be built. Drives the Save
+  // Draft/Preview & Submit buttons so they're only clickable when there's something to act on.
+  const hasSubmittableChanges = isAllScope ? bulkCombos.length > 0 : isDirty;
   const bulkPendingSkipped = useMemo(() => {
     if (!isAllScope) return 0;
     return targetGrades.flatMap((grade) => targetTerms.map((term) => Boolean(pendingMap[grade]?.[term]))).filter(Boolean).length;
   }, [isAllScope, targetGrades, targetTerms, pendingMap]);
+  // Combos with enabled lines that aren't skipped for being pending, but still didn't make the
+  // cut — i.e. unchanged from what's already approved.
+  const bulkUnchangedSkipped = useMemo(() => {
+    if (!isAllScope) return 0;
+    return targetGrades
+      .flatMap((grade) => targetTerms.map((term) => ({ grade, term, lines: defaultLines(grade, term) })))
+      .filter((combo) => combo.lines.some((line) => line.enabled))
+      .filter((combo) => !pendingMap[combo.grade]?.[combo.term])
+      .filter((combo) => JSON.stringify(combo.lines) === JSON.stringify(approvedLines(combo.grade, combo.term)))
+      .length;
+  }, [isAllScope, targetGrades, targetTerms, feeItems, pendingMap, liveMap]);
 
   const pendingStructures = structures.filter((record) => record.status === "Pending Approval");
   const rejectedStructures = structures.filter((record) => record.status === "Rejected");
@@ -446,6 +463,7 @@ const FeeStructureSetupPage = () => {
     grades.length === 0 ? "All Grades" : grades.length === gradeOptions.length ? "All Grades" : grades.join(", ");
 
   const filteredItems = feeItems.filter((item) => {
+    if (masterItemsFocus && !masterItemsFocus.itemIds.has(item.id)) return false;
     const q = itemSearch.trim().toLowerCase();
     if (!q) return true;
     return `${item.name} ${gradeLabel(item.grades)} ${item.term}`.toLowerCase().includes(q);
@@ -490,6 +508,79 @@ const FeeStructureSetupPage = () => {
   const filteredPendingTotal = filteredPending.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
   const filteredApprovedTotal = filteredApproved.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
 
+  const escapeHtml = (value: unknown): string =>
+    String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
+  // Shared print chrome for every parent-facing fee document — a proper letterhead (logo, school
+  // name, registration/contact details pulled from School Setup) plus one shared stylesheet, so
+  // "Print" and "Print Full Year" always produce the same professional layout instead of each
+  // hand-rolling its own header.
+  const letterheadHtml = () => {
+    const addressLine = [schoolInfo.physicalAddress, schoolInfo.postalAddress, schoolInfo.county].filter(Boolean).map(escapeHtml).join(" · ");
+    const contactLine = [schoolInfo.phone, schoolInfo.email, schoolInfo.website].filter(Boolean).map(escapeHtml).join("  ·  ");
+    return `
+      <div class="letterhead">
+        ${schoolInfo.logoUrl ? `<img class="logo" src="${escapeHtml(schoolInfo.logoUrl)}" alt="School logo" />` : `<div class="logo logo-placeholder"></div>`}
+        <div class="school-block">
+          <div class="school-name">${escapeHtml(schoolInfo.name || "School Name")}</div>
+          ${schoolInfo.registrationNumber ? `<div class="school-reg">Reg. No. ${escapeHtml(schoolInfo.registrationNumber)}</div>` : ""}
+          ${addressLine ? `<div class="school-line">${addressLine}</div>` : ""}
+          ${contactLine ? `<div class="school-line">${contactLine}</div>` : ""}
+        </div>
+      </div>
+      <div class="letterhead-rule"></div>`;
+  };
+
+  const PRINT_STYLES = `
+    @page { size: A4; margin: 16mm 14mm; }
+    *{box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;padding:0;color:#1a1a1a;font-size:13px;line-height:1.4}
+    .letterhead{display:flex;align-items:center;gap:16px}
+    .logo{width:64px;height:64px;object-fit:contain;flex-shrink:0}
+    .logo-placeholder{width:64px;height:64px;flex-shrink:0}
+    .school-block{flex:1;text-align:center}
+    .school-name{font-size:22px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:#111}
+    .school-reg{font-size:11px;color:#666;margin-top:2px}
+    .school-line{font-size:11px;color:#555;margin-top:2px}
+    .letterhead-rule{height:3px;background:linear-gradient(90deg,#111 0%,#111 70%,#999 100%);margin:12px 0 18px}
+    .doc-title{text-align:center;margin-bottom:18px}
+    .doc-title h1{margin:0;font-size:16px;letter-spacing:1px;text-transform:uppercase;font-weight:700}
+    .doc-title h2{margin:4px 0 0;font-size:13px;color:#444;font-weight:600}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 24px;font-size:11.5px;margin:0 0 20px;border:1px solid #ddd;background:#fafafa;padding:12px 14px;border-radius:6px}
+    .meta div span{color:#666;margin-right:6px}
+    .section{margin-bottom:20px}
+    .section-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:4px;margin-bottom:8px}
+    .section-head>span:first-child{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px}
+    .section-meta{font-size:10.5px;color:#666}
+    .empty{font-size:12px;color:#888;font-style:italic;margin:0 0 8px}
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    thead th{background:#111;color:#fff;padding:8px 10px;text-align:left;font-weight:600}
+    tbody td{padding:7px 10px;border-bottom:1px solid #e5e5e5}
+    tbody tr:nth-child(even){background:#f7f7f7}
+    tfoot td{font-weight:700;background:#f0f0f0;padding:8px 10px;border-top:2px solid #111}
+    .grand{margin-top:10px;padding:12px 16px;border:2px solid #111;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:800}
+    .note{margin-top:16px;font-size:11.5px;background:#fafafa;border:1px solid #ddd;border-radius:6px;padding:10px 12px}
+    .signatures{margin-top:40px;display:flex;justify-content:space-between;gap:40px}
+    .signatures .sig{flex:1;text-align:center}
+    .signatures .sig-line{border-top:1px solid #333;margin-bottom:6px;padding-top:6px;font-size:11px;color:#555}
+    .footer{margin-top:32px;padding-top:10px;border-top:1px solid #ddd;font-size:10px;color:#888;display:flex;justify-content:space-between}
+    @media print { .noprint{display:none} }
+  `;
+
+  const openPrintDocument = (title: string, bodyHtml: string) => {
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>
+      <title>${escapeHtml(title)}</title>
+      <style>${PRINT_STYLES}</style></head><body>
+      ${letterheadHtml()}
+      ${bodyHtml}
+      <div class="footer"><span>This is a system-generated fee statement — for billing queries contact the school finance office.</span><span>Printed ${new Date().toLocaleString()}</span></div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+      </body></html>`;
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { Swal.fire({ icon: "error", title: "Pop-up blocked", text: "Allow pop-ups to print the fee structure.", showConfirmButton: true }); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  };
+
   const printApprovedStructure = (record: FeeStructureRecord) => {
     const enabled = record.lines.filter((l) => l.enabled);
     const total = sumEnabled(record.lines);
@@ -497,48 +588,92 @@ const FeeStructureSetupPage = () => {
       const item = feeItems.find((it) => it.id === l.itemId);
       return `
       <tr>
-        <td>${item?.name ?? `Item #${l.itemId}`}</td>
-        <td>${item?.term ?? "Per Term"}</td>
+        <td>${escapeHtml(item?.name ?? `Item #${l.itemId}`)}</td>
+        <td>${escapeHtml(item?.term ?? "Per Term")}</td>
         <td style="text-align:right">KES ${Number(l.amount || 0).toLocaleString()}</td>
       </tr>`;
     }).join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <title>Fee Structure - ${record.grade} ${record.term} V${record.version}</title>
-      <style>
-        body{font-family:Arial,Helvetica,sans-serif;padding:32px;color:#111}
-        h1{margin:0 0 4px;font-size:20px}
-        h2{margin:0 0 16px;font-size:14px;color:#555;font-weight:normal}
-        .meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12px;margin:12px 0 20px;border:1px solid #ddd;padding:12px;border-radius:6px}
-        .meta div span{color:#666;margin-right:6px}
-        table{width:100%;border-collapse:collapse;font-size:13px}
-        th,td{border:1px solid #ccc;padding:8px 10px;text-align:left}
-        th{background:#f3f4f6}
-        tfoot td{font-weight:bold;background:#f9fafb}
-        .footer{margin-top:32px;font-size:11px;color:#666;display:flex;justify-content:space-between}
-        @media print { .noprint{display:none} }
-      </style></head><body>
-      <h1>EduManager — Approved Fee Structure</h1>
-      <h2>${record.grade} · ${record.term} · Academic Year ${record.academicYear} · Version ${record.version}</h2>
+    const body = `
+      <div class="doc-title">
+        <h1>Fee Structure Statement</h1>
+        <h2>${escapeHtml(record.grade)} · ${escapeHtml(record.term)} · Academic Year ${record.academicYear}</h2>
+      </div>
       <div class="meta">
-        <div><span>Maker:</span>${record.maker}</div>
-        <div><span>Approver:</span>${record.approver ?? "—"}</div>
-        <div><span>Submitted:</span>${record.submittedAt ? fmtDate(record.submittedAt) : "—"}</div>
+        <div><span>Version:</span>V${record.version}</div>
+        <div><span>Status:</span>${escapeHtml(record.status)}</div>
         <div><span>Approved On:</span>${record.reviewedAt ? fmtDate(record.reviewedAt) : "—"}</div>
-        <div><span>Status:</span>${record.status}</div>
-        <div><span>Reference:</span>${record.id}</div>
+        <div><span>Approved By:</span>${escapeHtml(record.approver ?? "—")}</div>
+        <div><span>Prepared By:</span>${escapeHtml(record.maker)}</div>
+        <div><span>Reference:</span>${escapeHtml(record.id)}</div>
       </div>
       <table>
         <thead><tr><th>Fee Item</th><th>Billing Cycle</th><th style="text-align:right">Amount (KES)</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
-        <tfoot><tr><td colspan="2">Total per ${record.term}</td><td style="text-align:right">KES ${total.toLocaleString()}</td></tr></tfoot>
+        <tfoot><tr><td colspan="2">Total Payable — ${escapeHtml(record.term)}</td><td style="text-align:right">KES ${total.toLocaleString()}</td></tr></tfoot>
       </table>
-      ${record.note ? `<p style="margin-top:16px;font-size:12px"><strong>Note:</strong> ${record.note}</p>` : ""}
-      <div class="footer"><span>Generated ${new Date().toLocaleString()}</span><span>EduManager</span></div>
-      <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
-      </body></html>`;
-    const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) { Swal.fire({ icon: "error", title: "Pop-up blocked", text: "Allow pop-ups to print the fee structure.", showConfirmButton: true }); return; }
-    w.document.open(); w.document.write(html); w.document.close();
+      ${record.note ? `<div class="note"><strong>Note:</strong> ${escapeHtml(record.note)}</div>` : ""}
+      <div class="signatures">
+        <div class="sig"><div class="sig-line">Finance Office Stamp</div></div>
+        <div class="sig"><div class="sig-line">Authorized Signature</div></div>
+      </div>`;
+    openPrintDocument(`Fee Structure - ${record.grade} ${record.term} V${record.version}`, body);
+  };
+
+  // Latest approved record for a grade/term, regardless of academic year — same "most recent
+  // approval wins" rule the workspace baseline (liveMap) already uses, so what prints here always
+  // matches what a fresh submission would diff against.
+  const latestApprovedRecord = (grade: string, term: TermKey): FeeStructureRecord | undefined =>
+    structures
+      .filter((record) => record.status === "Approved" && record.grade === grade && record.term === term)
+      .sort((a, b) => new Date(b.reviewedAt ?? b.updatedAt).getTime() - new Date(a.reviewedAt ?? a.updatedAt).getTime())[0];
+
+  // Full-year printout for one grade: one section per term, each with its own table and subtotal,
+  // a "Not yet approved" placeholder for any term with no approved structure yet, and a grand
+  // total across whatever terms are available.
+  const printGradeStatement = (grade: string) => {
+    const sections = TERMS.map((term) => {
+      const record = latestApprovedRecord(grade, term);
+      if (!record) return { term, record: undefined as FeeStructureRecord | undefined, rowsHtml: "", subtotal: 0 };
+      const enabled = record.lines.filter((l) => l.enabled);
+      const rowsHtml = enabled.map((l) => {
+        const item = feeItems.find((it) => it.id === l.itemId);
+        return `
+        <tr>
+          <td>${escapeHtml(item?.name ?? `Item #${l.itemId}`)}</td>
+          <td style="text-align:right">KES ${Number(l.amount || 0).toLocaleString()}</td>
+        </tr>`;
+      }).join("");
+      return { term, record, rowsHtml, subtotal: sumEnabled(record.lines) };
+    });
+    const grandTotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
+    const sectionsHtml = sections.map((section) => `
+      <div class="section">
+        <div class="section-head">
+          <span>${escapeHtml(section.term)}</span>
+          ${section.record
+            ? `<span class="section-meta">Year ${section.record.academicYear} · V${section.record.version} · Approved ${section.record.reviewedAt ? fmtDate(section.record.reviewedAt) : "—"} by ${escapeHtml(section.record.approver ?? "—")}</span>`
+            : `<span class="section-meta">Not yet approved</span>`}
+        </div>
+        ${section.record
+          ? `<table>
+              <thead><tr><th>Fee Item</th><th style="text-align:right">Amount (KES)</th></tr></thead>
+              <tbody>${section.rowsHtml}</tbody>
+              <tfoot><tr><td>Subtotal</td><td style="text-align:right">KES ${section.subtotal.toLocaleString()}</td></tr></tfoot>
+            </table>`
+          : `<p class="empty">No approved fee structure for ${escapeHtml(grade)} · ${escapeHtml(section.term)} yet.</p>`}
+      </div>`).join("");
+    const body = `
+      <div class="doc-title">
+        <h1>Full Year Fee Statement</h1>
+        <h2>${escapeHtml(grade)} · Term 1, Term 2, Term 3 &amp; Full Year fees combined</h2>
+      </div>
+      ${sectionsHtml}
+      <div class="grand"><span>Grand Total (Year)</span><span>KES ${grandTotal.toLocaleString()}</span></div>
+      <div class="signatures">
+        <div class="sig"><div class="sig-line">Finance Office Stamp</div></div>
+        <div class="sig"><div class="sig-line">Authorized Signature</div></div>
+      </div>`;
+    openPrintDocument(`Fee Structure - ${grade} - Full Year`, body);
   };
 
   const diffLines = (base: GradeStatementLine[], next: GradeStatementLine[]) => {
@@ -560,16 +695,11 @@ const FeeStructureSetupPage = () => {
     });
   };
 
-  const updateLine = (itemId: number, patch: Partial<GradeStatementLine>) => {
-    if (!isMaker || isReadOnly || isLockedPending) return;
-    setDraftLines(currentLines.map((line) => (line.itemId === itemId ? { ...line, ...patch } : line)));
-  };
-
   const resetMakerForm = () => {
-    setDraftLines(null);
     setEditingRejectedId(null);
     setSubmitNote("");
     setSelectedDueDate("");
+    setMasterItemsFocus(null);
   };
 
   const saveDraft = async () => {
@@ -618,6 +748,8 @@ const FeeStructureSetupPage = () => {
   };
 
   const submitForApproval = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       if (isAllScope) {
         await Promise.all(bulkCombos.map((combo) => FeeApi.submitStructure({
@@ -646,17 +778,27 @@ const FeeStructureSetupPage = () => {
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to submit", text: getBackendErrorMessage(err), showConfirmButton: true });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const loadRejectedForEditing = (record: FeeStructureRecord) => {
+  // The workspace is read-only, so "reworking" a rejected structure no longer means loading its
+  // lines for editing — it means fixing the relevant fee item(s) in Master Fee Items, then coming
+  // back here and resubmitting whatever Master Fee Items now says for this grade/term. This both
+  // arms that resubmission (editingRejectedId) and jumps straight to the exact items that rejected
+  // structure touched, so there's no hunting through the full Master Fee Items list.
+  const prepareRejectedResubmit = (record: FeeStructureRecord) => {
     if (!isMaker) {
       Swal.fire({ icon: "error", title: "Maker access required", showConfirmButton: true });
       return;
     }
     setSelectedGrade(record.grade);
     setSelectedTerm(record.term);
-    setDraftLines(record.lines);
+    setMasterItemsFocus({ grade: record.grade, term: record.term, itemIds: new Set(record.lines.map((line) => line.itemId)) });
+    setItemSearch("");
+    setItemsPage(1);
+    setItemsSubTab("items");
     setEditingRejectedId(record.id);
     setSubmitNote(record.note ?? "");
     setSelectedDueDate(record.dueDate ?? "");
@@ -679,6 +821,8 @@ const FeeStructureSetupPage = () => {
       confirmButtonText: "Approve",
     });
     if (!isConfirmed || !note || !note.trim()) return;
+    if (decidingId) return;
+    setDecidingId(record.id);
     try {
       await FeeApi.approveStructure(record.id, note);
       setReviewing(null);
@@ -687,6 +831,8 @@ const FeeStructureSetupPage = () => {
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to approve", text: getBackendErrorMessage(err), showConfirmButton: true });
+    } finally {
+      setDecidingId(null);
     }
   };
 
@@ -713,14 +859,20 @@ const FeeStructureSetupPage = () => {
       confirmButtonText: "Approve All",
     });
     if (!isConfirmed || !note || !note.trim()) return;
-    const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.approveStructure(record.id, note)));
-    const failed = results.filter((result) => result.status === "rejected").length;
-    await load();
-    if (failed > 0) {
-      Swal.fire({ icon: "warning", title: "Partially approved", text: `${results.length - failed} approved, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
-    } else {
-      Swal.fire({ title: "Success", text: `${results.length} fee structure(s) approved`, icon: "success", showConfirmButton: true });
-      setActiveTab("approved");
+    if (isBulkActing) return;
+    setIsBulkActing(true);
+    try {
+      const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.approveStructure(record.id, note)));
+      const failed = results.filter((result) => result.status === "rejected").length;
+      await load();
+      if (failed > 0) {
+        Swal.fire({ icon: "warning", title: "Partially approved", text: `${results.length - failed} approved, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
+      } else {
+        Swal.fire({ title: "Success", text: `${results.length} fee structure(s) approved`, icon: "success", showConfirmButton: true });
+        setActiveTab("approved");
+      }
+    } finally {
+      setIsBulkActing(false);
     }
   };
 
@@ -746,14 +898,20 @@ const FeeStructureSetupPage = () => {
       confirmButtonText: "Reject All",
     });
     if (!isConfirmed || !reason || !reason.trim()) return;
-    const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.rejectStructure(record.id, reason)));
-    const failed = results.filter((result) => result.status === "rejected").length;
-    await load();
-    if (failed > 0) {
-      Swal.fire({ icon: "warning", title: "Partially rejected", text: `${results.length - failed} rejected, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
-    } else {
-      Swal.fire({ title: "Success", text: `${results.length} fee structure(s) rejected`, icon: "success", showConfirmButton: true });
-      setActiveTab("maker");
+    if (isBulkActing) return;
+    setIsBulkActing(true);
+    try {
+      const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.rejectStructure(record.id, reason)));
+      const failed = results.filter((result) => result.status === "rejected").length;
+      await load();
+      if (failed > 0) {
+        Swal.fire({ icon: "warning", title: "Partially rejected", text: `${results.length - failed} rejected, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
+      } else {
+        Swal.fire({ title: "Success", text: `${results.length} fee structure(s) rejected`, icon: "success", showConfirmButton: true });
+        setActiveTab("maker");
+      }
+    } finally {
+      setIsBulkActing(false);
     }
   };
 
@@ -763,6 +921,8 @@ const FeeStructureSetupPage = () => {
       Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
       return;
     }
+    if (decidingId) return;
+    setDecidingId(rejectFor.id);
     try {
       await FeeApi.rejectStructure(rejectFor.id, rejectComment);
       Swal.fire({ title: "Success", text: `Fee structure rejected — ${rejectFor.grade} · ${rejectFor.term}`, icon: "success", showConfirmButton: true });
@@ -773,6 +933,8 @@ const FeeStructureSetupPage = () => {
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to reject", text: getBackendErrorMessage(err), showConfirmButton: true });
+    } finally {
+      setDecidingId(null);
     }
   };
 
@@ -965,21 +1127,21 @@ const FeeStructureSetupPage = () => {
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                   <CardTitle className="text-lg">Maker Workspace</CardTitle>
-                  <CardDescription>Select grade and term, build the fee structure, then move it to Approver.</CardDescription>
+                  <CardDescription>Read-only preview of Master Fee Items for the selected grade/term. Edit amounts and inclusion there, then submit here.</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Select value={String(selectedYear)} onValueChange={(value) => { setSelectedYear(Number(value)); setDraftLines(null); setEditingRejectedId(null); }}>
+                  <Select value={String(selectedYear)} onValueChange={(value) => { setSelectedYear(Number(value)); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[150px]"><SelectValue placeholder="Academic Year" /></SelectTrigger>
                     <SelectContent>{ACADEMIC_YEARS.map((year) => <SelectItem key={year} value={String(year)}>Year {year}</SelectItem>)}</SelectContent>
                   </Select>
-                  <Select value={selectedGrade} onValueChange={(value) => { setSelectedGrade(value); setDraftLines(null); setEditingRejectedId(null); }}>
+                  <Select value={selectedGrade} onValueChange={(value) => { setSelectedGrade(value); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Grades</SelectItem>
                       {gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value as TermSelection); setDraftLines(null); setEditingRejectedId(null); }}>
+                  <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value as TermSelection); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Terms</SelectItem>
@@ -988,34 +1150,35 @@ const FeeStructureSetupPage = () => {
                   </Select>
                   <Input type="date" className="w-[150px]" value={selectedDueDate} onChange={(e) => setSelectedDueDate(e.target.value)} placeholder="Due date" />
                   {isDirty && <Button size="sm" variant="outline" onClick={resetMakerForm}><RotateCcw className="h-4 w-4" /> Clear</Button>}
-                  <Button size="sm" variant="outline" disabled={!isMaker || !isDirty} onClick={saveDraft}><Save className="h-4 w-4" /> Save Draft</Button>
-                  <Button size="sm" disabled={!isMaker || !isDirty} onClick={openPreview}><Send className="h-4 w-4" /> Preview & Submit</Button>
+                  <Button size="sm" variant="outline" disabled={!isMaker || !hasSubmittableChanges} onClick={saveDraft}><Save className="h-4 w-4" /> Save Draft</Button>
+                  <Button size="sm" disabled={!isMaker || !hasSubmittableChanges} onClick={openPreview}><Send className="h-4 w-4" /> Preview & Submit</Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {editingRejectedId && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
-                  Editing a rejected fee structure. Update the lines and submit again for approval.
+                  Resubmitting a rejected fee structure. If it needs changes, fix the relevant item(s) in Master Fee Items below first — this always submits whatever Master Fee Items currently says.
                 </div>
               )}
               {isLockedPending && pendingRecord && (
                 <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
                   {selectedGrade} · {selectedTerm} already has a fee structure pending approval — submitted by {pendingRecord.maker} on {fmtDate(pendingRecord.submittedAt)}, total KES {sumEnabled(pendingRecord.lines).toLocaleString()}.
-                  {" "}Shown below for reference only; editing is disabled until the Approver approves or rejects it. It'll come back here to edit only if rejected.
+                  {" "}Shown below for reference only until the Approver approves or rejects it. It'll come back here to resubmit only if rejected.
                 </div>
               )}
               {isAllScope && (
                 <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-                  Building a shared structure for {isAllGrades ? `all ${targetGrades.length} grade(s)` : selectedGrade} · {isAllTerms ? "all terms" : selectedTerm}.
-                  {" "}This will submit one structure per matching grade/term — amounts you set here apply to every one of them (per-term pricing still comes from each fee item's own Term 1/2/3 amounts). Pick one specific grade and term for one-off adjustments.
+                  Previewing a shared structure for {isAllGrades ? `all ${targetGrades.length} grade(s)` : selectedGrade} · {isAllTerms ? "all terms" : selectedTerm}, built from Master Fee Items.
+                  {" "}This will submit one structure per matching grade/term at whatever inclusion/amount Master Fee Items currently has (per-term pricing comes from each item's own Term 1/2/3 amounts). Pick one specific grade and term for a single one.
                   {bulkPendingSkipped > 0 && ` ${bulkPendingSkipped} combo(s) already pending approval will be skipped, not resubmitted.`}
+                  {bulkUnchangedSkipped > 0 && ` ${bulkUnchangedSkipped} combo(s) unchanged from what's already approved will be skipped too.`}
                 </div>
               )}
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-16 text-center">Include</TableHead>
+                    <TableHead className="w-16 text-center">Included</TableHead>
                     <TableHead>Fee Item</TableHead>
                     <TableHead>Applicable Grades</TableHead>
                     <TableHead>Billing Cycle</TableHead>
@@ -1027,26 +1190,25 @@ const FeeStructureSetupPage = () => {
                     const item = feeItems.find((feeItem) => feeItem.id === line.itemId);
                     if (!item) return null;
                     return (
-                      <TableRow key={line.itemId}>
+                      <TableRow key={line.itemId} className={line.enabled ? undefined : "opacity-60"}>
                         <TableCell className="text-center">
-                          <Checkbox checked={line.enabled} disabled={!isMaker || isReadOnly || isLockedPending} onCheckedChange={(checked) => updateLine(line.itemId, { enabled: Boolean(checked) })} />
+                          {line.enabled
+                            ? <CheckCircle2 className="mx-auto h-4 w-4 text-success" />
+                            : <XCircle className="mx-auto h-4 w-4 text-muted-foreground" />}
                         </TableCell>
-                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.name}
+                          {!line.enabled && <span className="ml-2 text-xs text-muted-foreground">(inactive in Master Fee Items)</span>}
+                        </TableCell>
                         <TableCell><Badge variant="outline">{gradeLabel(item.grades)}</Badge></TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
-                        <TableCell>
+                        <TableCell className="text-right">
                           {isAmbiguousPerTermAmount(item) ? (
-                            <span className="block text-right text-xs text-muted-foreground whitespace-nowrap">
+                            <span className="block text-xs text-muted-foreground whitespace-nowrap">
                               T1 {resolveAmount(item, "Term 1").toLocaleString()} · T2 {resolveAmount(item, "Term 2").toLocaleString()} · T3 {resolveAmount(item, "Term 3").toLocaleString()}
                             </span>
                           ) : (
-                            <Input
-                              type="number"
-                              className="h-9 text-right"
-                              value={line.amount}
-                              disabled={!line.enabled || !isMaker || isReadOnly || isLockedPending}
-                              onChange={(event) => updateLine(line.itemId, { amount: Number(event.target.value) })}
-                            />
+                            <span className="font-medium tabular-nums">KES {Number(line.amount || 0).toLocaleString()}</span>
                           )}
                         </TableCell>
                       </TableRow>
@@ -1070,102 +1232,114 @@ const FeeStructureSetupPage = () => {
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Rejected for Correction</CardTitle>
-                <CardDescription>{rejectedStructures.length} fee structure(s) returned to Maker.</CardDescription>
-              </CardHeader>
-              <CardContent>
-              <div className="mb-3 relative max-w-sm">
-                <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-8" placeholder="Search rejected..." value={rejectedSearch} onChange={(event) => { setRejectedSearch(event.target.value); setRejectedPage(1); }} />
-              </div>
-              {filteredRejected.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No rejected fee structures.</p>
-                ) : (
-                  <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Fee Items</CardTitle>
+              <CardDescription>Manage the master fee item list, or review structures the Approver sent back for correction.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs value={itemsSubTab} onValueChange={(value) => setItemsSubTab(value as "items" | "rejected")}>
+                <TabsList>
+                  <TabsTrigger value="items">Master Fee Items</TabsTrigger>
+                  <TabsTrigger value="rejected" className="gap-2">
+                    Rejected for Correction
+                    {rejectedStructures.length > 0 && (
+                      <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1.5">{rejectedStructures.length}</Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="items" className="mt-4 space-y-3">
+                  {masterItemsFocus && (
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                      <span>Showing the {masterItemsFocus.itemIds.size} item(s) from the rejected {masterItemsFocus.grade} · {masterItemsFocus.term} submission — fix them here, then scroll up and Resubmit.</span>
+                      <Button size="sm" variant="ghost" onClick={() => setMasterItemsFocus(null)}><XCircle className="h-4 w-4" /> Show all items</Button>
+                    </div>
+                  )}
+                  <div className="relative max-w-sm">
+                    <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input className="pl-8" placeholder="Search fee items..." value={itemSearch} onChange={(event) => { setItemSearch(event.target.value); setItemsPage(1); }} />
+                  </div>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Structure</TableHead>
-                        <TableHead>Reason</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
+                        <TableHead>Fee Item</TableHead>
+                        <TableHead>Applicable Grades</TableHead>
+                        <TableHead>Billing Cycle</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-center">Active</TableHead>
+                        <TableHead className="w-24 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {pagedRejected.map((record) => (
-                        <TableRow key={record.id}>
-                          <TableCell className="font-medium">{record.grade} · {record.term}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{record.rejectionReason}</TableCell>
+                      {pagedItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">{item.name}</TableCell>
+                          <TableCell className="text-sm">{gradeLabel(item.grades)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {item.term === "Per Term" && (item.term1Amount != null || item.term2Amount != null || item.term3Amount != null) ? (
+                              <span className="text-xs font-normal whitespace-nowrap">
+                                T1 {resolveAmount(item, "Term 1").toLocaleString()} · T2 {resolveAmount(item, "Term 2").toLocaleString()} · T3 {resolveAmount(item, "Term 3").toLocaleString()}
+                              </span>
+                            ) : (
+                              item.amount.toLocaleString()
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center"><Switch checked={item.active} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="outline" disabled={!isMaker} onClick={() => loadRejectedForEditing(record)}>
-                              <Pencil className="h-4 w-4" /> Edit
-                            </Button>
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                  <Pagination currentPage={rejectedPage} totalPages={totalRejectedPages} onPageChange={setRejectedPage}
-                    itemsPerPage={rejectedPerPage} onItemsPerPageChange={(v) => { setRejectedPerPage(v); setRejectedPage(1); }} />
-                  </>
-                )}
-              </CardContent>
-            </Card>
+                  <Pagination currentPage={itemsPage} totalPages={totalItemsPages} onPageChange={setItemsPage}
+                    itemsPerPage={itemsPerPageCount} onItemsPerPageChange={(v) => { setItemsPerPageCount(v); setItemsPage(1); }} />
+                </TabsContent>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Master Fee Items</CardTitle>
-                <CardDescription>{feeItems.filter((item) => item.active).length} active · {feeItems.length} total</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-3 relative max-w-sm">
-                  <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="pl-8" placeholder="Search fee items..." value={itemSearch} onChange={(event) => { setItemSearch(event.target.value); setItemsPage(1); }} />
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fee Item</TableHead>
-                      <TableHead>Applicable Grades</TableHead>
-                      <TableHead>Billing Cycle</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-center">Active</TableHead>
-                      <TableHead className="w-24 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pagedItems.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell className="text-sm">{gradeLabel(item.grades)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {item.term === "Per Term" && (item.term1Amount != null || item.term2Amount != null || item.term3Amount != null) ? (
-                            <span className="text-xs font-normal whitespace-nowrap">
-                              T1 {resolveAmount(item, "Term 1").toLocaleString()} · T2 {resolveAmount(item, "Term 2").toLocaleString()} · T3 {resolveAmount(item, "Term 3").toLocaleString()}
-                            </span>
-                          ) : (
-                            item.amount.toLocaleString()
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center"><Switch checked={item.active} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <Pagination currentPage={itemsPage} totalPages={totalItemsPages} onPageChange={setItemsPage}
-                  itemsPerPage={itemsPerPageCount} onItemsPerPageChange={(v) => { setItemsPerPageCount(v); setItemsPage(1); }} />
-              </CardContent>
-            </Card>
-          </div>
+                <TabsContent value="rejected" className="mt-4 space-y-3">
+                  <div className="relative max-w-sm">
+                    <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input className="pl-8" placeholder="Search rejected..." value={rejectedSearch} onChange={(event) => { setRejectedSearch(event.target.value); setRejectedPage(1); }} />
+                  </div>
+                  {filteredRejected.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No rejected fee structures.</p>
+                  ) : (
+                    <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Structure</TableHead>
+                          <TableHead>Reason</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedRejected.map((record) => (
+                          <TableRow key={record.id}>
+                            <TableCell className="font-medium">{record.grade} · {record.term}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{record.rejectionReason}</TableCell>
+                            <TableCell className="text-right">
+                              <Button size="sm" variant="outline" disabled={!isMaker} onClick={() => prepareRejectedResubmit(record)}>
+                                <Pencil className="h-4 w-4" /> Fix in Master Items
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <Pagination currentPage={rejectedPage} totalPages={totalRejectedPages} onPageChange={setRejectedPage}
+                      itemsPerPage={rejectedPerPage} onItemsPerPageChange={(v) => { setRejectedPerPage(v); setRejectedPage(1); }} />
+                    </>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
 
           {draftStructures.length > 0 && (
             <Card>
@@ -1218,11 +1392,11 @@ const FeeStructureSetupPage = () => {
                     <span className="text-muted-foreground">Proposed Total{approverGrade === "all" ? " (All Grades)" : ` (${approverGrade})`}: </span>
                     <span className="font-bold text-warning">KES {filteredPendingTotal.toLocaleString()}</span>
                   </div>
-                  <Button size="sm" disabled={!isApprover || filteredPending.length === 0} onClick={approveAllFiltered}>
-                    <CheckCircle2 className="h-4 w-4" /> Approve All ({filteredPending.length})
+                  <Button size="sm" disabled={!isApprover || filteredPending.length === 0 || isBulkActing || Boolean(decidingId)} onClick={approveAllFiltered}>
+                    <CheckCircle2 className="h-4 w-4" /> {isBulkActing ? "Approving…" : `Approve All (${filteredPending.length})`}
                   </Button>
-                  <Button size="sm" variant="outline" disabled={!isApprover || filteredPending.length === 0} onClick={rejectAllFiltered}>
-                    <XCircle className="h-4 w-4 text-destructive" /> Reject All ({filteredPending.length})
+                  <Button size="sm" variant="outline" disabled={!isApprover || filteredPending.length === 0 || isBulkActing || Boolean(decidingId)} onClick={rejectAllFiltered}>
+                    <XCircle className="h-4 w-4 text-destructive" /> {isBulkActing ? "Rejecting…" : `Reject All (${filteredPending.length})`}
                   </Button>
                 </div>
               </div>
@@ -1289,8 +1463,8 @@ const FeeStructureSetupPage = () => {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
                             <Button size="sm" variant="outline" onClick={() => setReviewing(record)}><Eye className="h-4 w-4" /> View</Button>
-                            <Button size="sm" variant="outline" disabled={!isApprover} onClick={() => approveStructure(record)}><CheckCircle2 className="h-4 w-4 text-success" /> Approve</Button>
-                            <Button size="sm" variant="outline" disabled={!isApprover} onClick={() => { setRejectFor(record); setRejectComment(""); }}><XCircle className="h-4 w-4 text-destructive" /> Reject</Button>
+                            <Button size="sm" variant="outline" disabled={!isApprover || Boolean(decidingId) || isBulkActing} onClick={() => approveStructure(record)}><CheckCircle2 className="h-4 w-4 text-success" /> Approve</Button>
+                            <Button size="sm" variant="outline" disabled={!isApprover || Boolean(decidingId) || isBulkActing} onClick={() => { setRejectFor(record); setRejectComment(""); }}><XCircle className="h-4 w-4 text-destructive" /> Reject</Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1313,9 +1487,20 @@ const FeeStructureSetupPage = () => {
                   <CardTitle className="text-lg">Approved Fee Structures History</CardTitle>
                   <CardDescription>All approved versions remain available for review.</CardDescription>
                 </div>
-                <div className="rounded-md border border-success/30 bg-success/5 px-3 py-1.5 text-right text-sm">
-                  <span className="text-muted-foreground">Approved Total{approvedGrade === "all" ? " (All Grades)" : ` (${approvedGrade})`}: </span>
-                  <span className="font-bold text-success">KES {filteredApprovedTotal.toLocaleString()}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="rounded-md border border-success/30 bg-success/5 px-3 py-1.5 text-right text-sm">
+                    <span className="text-muted-foreground">Approved Total{approvedGrade === "all" ? " (All Grades)" : ` (${approvedGrade})`}: </span>
+                    <span className="font-bold text-success">KES {filteredApprovedTotal.toLocaleString()}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={approvedGrade === "all"}
+                    title={approvedGrade === "all" ? "Select a single grade above to print its full year statement" : undefined}
+                    onClick={() => printGradeStatement(approvedGrade)}
+                  >
+                    <Printer className="h-4 w-4" /> Print Full Year — {approvedGrade === "all" ? "select a grade" : approvedGrade}
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -1538,8 +1723,8 @@ const FeeStructureSetupPage = () => {
             <Textarea rows={2} value={submitNote} onChange={(event) => setSubmitNote(event.target.value)} placeholder="Optional note for the approver" />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>Cancel</Button>
-            <Button onClick={submitForApproval}><Send className="h-4 w-4" /> Submit to Approver{isAllScope ? ` (${bulkCombos.length})` : ""}</Button>
+            <Button variant="outline" disabled={isSubmitting} onClick={() => setPreviewOpen(false)}>Cancel</Button>
+            <Button disabled={isSubmitting} onClick={submitForApproval}><Send className="h-4 w-4" /> {isSubmitting ? "Submitting…" : `Submit to Approver${isAllScope ? ` (${bulkCombos.length})` : ""}`}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1556,8 +1741,8 @@ const FeeStructureSetupPage = () => {
             <Button variant="outline" onClick={() => setReviewing(null)}>Close</Button>
             {reviewing?.status === "Pending Approval" && (
               <>
-                <Button variant="outline" disabled={!isApprover} onClick={() => { setRejectFor(reviewing); setRejectComment(""); }}><XCircle className="h-4 w-4 text-destructive" /> Reject</Button>
-                <Button disabled={!isApprover} onClick={() => approveStructure(reviewing)}><CheckCircle2 className="h-4 w-4" /> Approve</Button>
+                <Button variant="outline" disabled={!isApprover || Boolean(decidingId)} onClick={() => { setRejectFor(reviewing); setRejectComment(""); }}><XCircle className="h-4 w-4 text-destructive" /> Reject</Button>
+                <Button disabled={!isApprover || Boolean(decidingId)} onClick={() => approveStructure(reviewing)}><CheckCircle2 className="h-4 w-4" /> {decidingId === reviewing?.id ? "Approving…" : "Approve"}</Button>
               </>
             )}
           </DialogFooter>
@@ -1572,8 +1757,8 @@ const FeeStructureSetupPage = () => {
           </DialogHeader>
           <Textarea rows={4} value={rejectComment} onChange={(event) => setRejectComment(event.target.value)} placeholder="Reason for rejection (required)" />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectFor(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={!rejectComment.trim()} onClick={confirmReject}>Reject</Button>
+            <Button variant="outline" disabled={Boolean(decidingId)} onClick={() => setRejectFor(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={!rejectComment.trim() || Boolean(decidingId)} onClick={confirmReject}>{decidingId === rejectFor?.id ? "Rejecting…" : "Reject"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

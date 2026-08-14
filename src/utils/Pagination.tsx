@@ -10,9 +10,19 @@ interface PaginationProps {
 }
 
 const PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 50];
+// Cap how many page-number buttons show at once — the window slides to keep the current page
+// visible as Previous/Next move through it, instead of listing every page (e.g. all 28 of them).
+const MAX_VISIBLE_PAGES = 5;
 
 const Pagination = ({ currentPage, totalPages, onPageChange, itemsPerPage, onItemsPerPageChange }: PaginationProps) => {
-  const pages = [...Array(Math.max(totalPages, 0)).keys()].map((n) => n + 1);
+  const windowSize = Math.min(MAX_VISIBLE_PAGES, Math.max(totalPages, 0));
+  let pages: number[] = [];
+  if (windowSize > 0) {
+    let windowStart = Math.max(1, currentPage - Math.floor(windowSize / 2));
+    const windowEnd = Math.min(totalPages, windowStart + windowSize - 1);
+    windowStart = Math.max(1, windowEnd - windowSize + 1);
+    pages = [...Array(windowEnd - windowStart + 1).keys()].map((n) => n + windowStart);
+  }
 
   return (
     <div className="flex flex-col gap-3 mt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -28,6 +38,9 @@ const Pagination = ({ currentPage, totalPages, onPageChange, itemsPerPage, onIte
         </Select>
       </div>
       <ul className="flex flex-wrap items-center gap-1 list-none m-0 p-0">
+        {totalPages > 0 && (
+          <li className="mr-1 text-sm text-muted-foreground">Page {currentPage} of {totalPages}</li>
+        )}
         <li>
           <Button
             variant="outline"
