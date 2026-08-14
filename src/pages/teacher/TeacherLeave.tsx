@@ -178,7 +178,15 @@ const TeacherLeave = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {balances.slice(0, 2).map((b) => (
-          <StatCard key={b.leaveTypeId} title={b.leaveTypeName} value={`${b.remainingDays} days`} change="Remaining" changeType="neutral" icon={CalendarDays} iconColor="bg-primary/10 text-primary" />
+          <StatCard
+            key={b.leaveTypeId}
+            title={b.leaveTypeName}
+            value={`${b.remainingDays} days`}
+            change={b.carriedForwardDays > 0 ? `${b.carriedForwardDays} carried over` : "Remaining"}
+            changeType="neutral"
+            icon={CalendarDays}
+            iconColor="bg-primary/10 text-primary"
+          />
         ))}
         <StatCard title="Used This Year" value={`${usedThisYear} days`} icon={CheckCircle} iconColor="bg-success/10 text-success" />
         <StatCard title="Pending" value={pendingCount} icon={Clock} iconColor="bg-warning/10 text-warning" />

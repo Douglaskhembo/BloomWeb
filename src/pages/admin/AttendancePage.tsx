@@ -8,9 +8,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Search, Download, Fingerprint } from "lucide-react";
+import { Search, Download, Fingerprint, Percent } from "lucide-react";
 import { AttendanceReportApi } from "@/services/api";
 import { downloadAttendanceReport } from "@/lib/attendanceExport";
+import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 
@@ -27,6 +28,7 @@ const AttendancePage = () => {
   const [staffId, setStaffId] = useState("");
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<any[]>([]);
 
   const [attendancePage, setAttendancePage] = useState(1);
   const [attendancePerPage, setAttendancePerPage] = useState(10);
@@ -39,15 +41,25 @@ const AttendancePage = () => {
   const search = async () => {
     setLoading(true);
     try {
-      const data = tab === "students"
-        ? await AttendanceReportApi.searchStudents({ from, to, grade: grade || undefined, stream: stream || undefined, admissionNumber: admissionNumber || undefined })
-        : await AttendanceReportApi.searchStaff({ from, to, staffId: staffId || undefined });
-      setRows(data);
+      if (tab === "students") {
+        const [data, summaryData] = await Promise.all([
+          AttendanceReportApi.searchStudents({ from, to, grade: grade || undefined, stream: stream || undefined, admissionNumber: admissionNumber || undefined }),
+          AttendanceReportApi.getSummary({ from, to, grade: grade || undefined, stream: stream || undefined }),
+        ]);
+        setRows(data);
+        setSummary(summaryData);
+      } else {
+        setRows(await AttendanceReportApi.searchStaff({ from, to, staffId: staffId || undefined }));
+        setSummary([]);
+      }
       setAttendancePage(1);
     } finally {
       setLoading(false);
     }
   };
+
+  const classAveragePercent = summary.length > 0 ? summary.reduce((sum, s) => sum + s.percentage, 0) / summary.length : 0;
+  const belowThresholdCount = summary.filter((s) => s.percentage < 80).length;
 
   useEffect(() => { search(); }, [tab]);
 
@@ -107,6 +119,55 @@ const AttendancePage = () => {
           <Button size="sm" onClick={search}><Search className="w-4 h-4 mr-1" /> Search</Button>
         </CardContent>
       </Card>
+
+      {tab === "students" && summary.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatCard title="Class Average" value={`${classAveragePercent.toFixed(1)}%`} icon={Percent} />
+            <StatCard title="Students Tracked" value={summary.length} icon={Fingerprint} />
+            <StatCard title="Below 80% Attendance" value={belowThresholdCount} icon={Fingerprint}
+              iconColor={belowThresholdCount > 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Percentage = weekdays with at least one recorded entry scan ÷ total weekdays in range. There's no school-calendar
+            model yet, so public holidays aren't excluded, and a day with zero scans is treated as absent even if it was a
+            scanner outage rather than a genuine absence — treat this as a proxy, not an exact figure.
+          </p>
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-base">Attendance % by Student</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Adm No</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Grade</TableHead>
+                    <TableHead>Stream</TableHead>
+                    <TableHead className="text-right">Days Present</TableHead>
+                    <TableHead className="text-right">School Days</TableHead>
+                    <TableHead className="text-right">Attendance %</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summary.map((s) => (
+                    <TableRow key={s.admissionNumber}>
+                      <TableCell className="font-mono text-xs">{s.admissionNumber}</TableCell>
+                      <TableCell className="font-medium">{s.name}</TableCell>
+                      <TableCell>{s.grade}</TableCell>
+                      <TableCell className="text-muted-foreground">{s.stream || "—"}</TableCell>
+                      <TableCell className="text-right">{s.daysPresent}</TableCell>
+                      <TableCell className="text-right">{s.totalSchoolDays}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={s.percentage < 80 ? "destructive" : "default"} className="text-[10px]">{s.percentage.toFixed(1)}%</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <Card>
         <CardContent className="pt-6">

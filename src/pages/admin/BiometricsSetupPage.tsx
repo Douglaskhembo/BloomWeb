@@ -9,20 +9,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ArrowLeft, Fingerprint, ScanFace, Trash2, KeyRound, RefreshCw, UserCheck, Dices } from "lucide-react";
+import { ArrowLeft, Fingerprint, ScanFace, Trash2, KeyRound, RefreshCw, UserCheck, Upload, X, Usb } from "lucide-react";
 import Swal from "sweetalert2";
 import { StaffApi, StudentApi, BiometricsApi, DeviceApi, ClassTeacherApi, SchoolApi } from "@/services/api";
-import { triggerFingerprintGesture, isPlatformAuthenticatorAvailable } from "@/lib/webauthnGesture";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { fingerprintScanner, isFingerprintScannerSupported } from "@/lib/fingerprintScanner";
 import { Combobox } from "@/components/ui/combobox";
 import Pagination from "@/utils/Pagination";
 
 const FINGER_NAMES = ["THUMB", "INDEX", "MIDDLE", "RING", "LITTLE"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-/** Real fingerprint template refs come from the enrolling device's SDK — there's nothing meaningful
- * for a human to type here until real hardware is wired up, so we generate a placeholder and let
- * the admin regenerate/override it rather than asking them to invent a value from nothing. */
-const genRef = () => `TEST-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+/** Strips the data-URL prefix, leaving just the base64 payload the backend expects. */
+const readFileAsBase64 = (file: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 // ── Staff / Student enrollment panel ────────────────────────────────────────
 
@@ -34,45 +39,134 @@ interface OwnerConfig {
   api: typeof BiometricsApi.staff;
 }
 
-const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
+/** Capture slot for a single fingerprint scan — scans live off a connected Web Serial device
+ *  when one is available, otherwise falls back to uploading a scan image (for testing without
+ *  hardware, or a scan image produced by other means). Used for left/right enrollment scans
+ *  and the probe image in the Identify card. */
+const FingerprintCaptureSlot = ({
+  label, file, onCapture, onClear, scannerConnected,
+}: { label: string; file: File | null; onCapture: (file: File) => void; onClear: () => void; scannerConnected: boolean }) => {
+  const [scanning, setScanning] = useState(false);
+
+  const scanNow = async () => {
+    setScanning(true);
+    try {
+      const blob = await fingerprintScanner.captureImage();
+      onCapture(new File([blob], `scan-${Date.now()}.png`, { type: "image/png" }));
+    } catch (err: any) {
+      Swal.fire({ icon: "error", title: "Scan failed", text: err?.message ?? String(err), showConfirmButton: true });
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {file ? (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg border border-border bg-background">
+          <Fingerprint className="w-4 h-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{file.name}</p>
+            <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+          </div>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onClear}><X className="w-3.5 h-3.5" /></Button>
+        </div>
+      ) : scannerConnected ? (
+        <Button type="button" variant="outline" className="w-full" onClick={scanNow} disabled={scanning}>
+          <ScanFace className="w-4 h-4 mr-1" /> {scanning ? "Touch the sensor..." : "Scan Now"}
+        </Button>
+      ) : (
+        <label className="flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 border-dashed border-muted-foreground/30 cursor-pointer hover:border-primary/50 transition-colors">
+          <Upload className="w-5 h-5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">No scanner connected — upload a scan image instead (max 5MB)</span>
+          <input
+            type="file"
+            className="hidden"
+            accept="image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              if (f.size > MAX_IMAGE_BYTES) {
+                Swal.fire({ icon: "error", title: "File must be under 5MB", showConfirmButton: true });
+                return;
+              }
+              onCapture(f);
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+};
+
+const EnrollmentPanel = ({ config, scannerConnected }: { config: OwnerConfig; scannerConnected: boolean }) => {
   const [people, setPeople] = useState<any[]>([]);
   const [selectedUuid, setSelectedUuid] = useState("");
   const [bioData, setBioData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [platformAuthAvailable, setPlatformAuthAvailable] = useState(false);
+  const [reEnrolling, setReEnrolling] = useState(false);
   const [form, setForm] = useState({
-    leftFingerprintTemplateRef: genRef(), leftFingerName: "THUMB",
-    rightFingerprintTemplateRef: genRef(), rightFingerName: "THUMB",
+    leftFingerName: "THUMB", rightFingerName: "THUMB",
     faceTemplateRef: "", enrolledDeviceId: "WEB-ENROLL",
   });
+  const [leftFile, setLeftFile] = useState<File | null>(null);
+  const [rightFile, setRightFile] = useState<File | null>(null);
+  const [probeFile, setProbeFile] = useState<File | null>(null);
+  const [identifying, setIdentifying] = useState(false);
 
   useEffect(() => { config.getAll().then(setPeople); }, [config]);
-  useEffect(() => { isPlatformAuthenticatorAvailable().then(setPlatformAuthAvailable); }, []);
 
   const selectedPerson = people.find((p) => p.uuid === selectedUuid);
+  const showForm = !bioData || reEnrolling;
+
+  const resetFormState = () => {
+    setLeftFile(null);
+    setRightFile(null);
+    setForm({ leftFingerName: "THUMB", rightFingerName: "THUMB", faceTemplateRef: "", enrolledDeviceId: "WEB-ENROLL" });
+  };
 
   const loadBioData = async (uuid: string) => {
     setLoading(true);
     const data = await config.api.getBioData(uuid);
     setBioData(data);
-    if (!data) {
-      setForm((f) => ({ ...f, leftFingerprintTemplateRef: genRef(), rightFingerprintTemplateRef: genRef() }));
-    }
+    setReEnrolling(false);
+    resetFormState();
     setLoading(false);
   };
 
   const handleSelect = (uuid: string) => {
     setSelectedUuid(uuid);
+    setProbeFile(null);
     loadBioData(uuid);
   };
 
   const handleEnroll = async () => {
-    if (!form.leftFingerprintTemplateRef || !form.rightFingerprintTemplateRef) {
-      Swal.fire({ icon: "error", title: "Both left and right fingerprint refs are required", showConfirmButton: true });
+    if (!leftFile || !rightFile) {
+      Swal.fire({ icon: "error", title: "Both left and right fingerprint scans are required", showConfirmButton: true });
       return;
     }
+    if (bioData) {
+      const confirmed = await Swal.fire({
+        icon: "warning",
+        title: "Replace existing fingerprint?",
+        text: `This overwrites the previously enrolled left/right templates for this ${config.label.toLowerCase()}.`,
+        showCancelButton: true,
+        confirmButtonText: "Replace",
+        cancelButtonText: "Cancel",
+      });
+      if (!confirmed.isConfirmed) return;
+    }
     try {
-      await config.api.enroll(selectedUuid, form);
+      const [leftFingerprintImage, rightFingerprintImage] = await Promise.all([
+        readFileAsBase64(leftFile), readFileAsBase64(rightFile),
+      ]);
+      await config.api.enroll(selectedUuid, {
+        leftFingerprintImage, leftFingerName: form.leftFingerName,
+        rightFingerprintImage, rightFingerName: form.rightFingerName,
+        faceTemplateRef: form.faceTemplateRef || undefined,
+        enrolledDeviceId: form.enrolledDeviceId,
+      });
       Swal.fire({ title: "Success", text: `${config.label} enrolled for biometrics`, icon: "success", showConfirmButton: true });
       loadBioData(selectedUuid);
     } catch (err) {
@@ -90,18 +184,26 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
     }
   };
 
-  const runCapture = async (withFingerprintPrompt: boolean) => {
+  const runIdentify = async () => {
+    if (!probeFile) {
+      Swal.fire({ icon: "error", title: "Upload a fingerprint scan to identify", showConfirmButton: true });
+      return;
+    }
+    setIdentifying(true);
     try {
-      if (withFingerprintPrompt) await triggerFingerprintGesture(config.label);
-      const result = await config.api.capture(bioData.uuid, "WEB-TEST", "Test scan via browser");
+      const image = await readFileAsBase64(probeFile);
+      const result = await BiometricsApi.identify({ image, deviceId: "WEB-TEST", remarks: "Test scan via browser" });
       Swal.fire({
         title: `${result.eventType === "CLOCK_IN" || result.eventType === "ENTRY" ? "Clocked in" : "Clocked out"}`,
-        text: `${result.ownerName} — ${result.status} at ${new Date(result.clockInOrEntry ?? result.clockOutOrExit).toLocaleTimeString()}`,
+        text: `${result.ownerName} (${result.ownerType}) — ${result.status} at ${new Date(result.clockInOrEntry ?? result.clockOutOrExit).toLocaleTimeString()} · match score ${Number(result.matchScore).toFixed(1)}`,
         icon: "success",
         showConfirmButton: true,
       });
+      setProbeFile(null);
     } catch (err: any) {
-      Swal.fire({ icon: "error", title: "Test scan failed", text: err?.message ?? getBackendErrorMessage(err), showConfirmButton: true });
+      Swal.fire({ icon: "error", title: "No match found", text: err?.message ?? getBackendErrorMessage(err), showConfirmButton: true });
+    } finally {
+      setIdentifying(false);
     }
   };
 
@@ -138,19 +240,15 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
           {!selectedUuid && <p className="text-sm text-muted-foreground py-8 text-center">Select someone from the list.</p>}
           {selectedUuid && loading && <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>}
 
-          {selectedUuid && !loading && !bioData && (
+          {selectedUuid && !loading && showForm && (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Not yet enrolled. Enter fingerprint template refs from the enrolling device (or a placeholder for testing).</p>
+              <p className="text-sm text-muted-foreground">
+                Upload a left and right fingerprint scan image from a scanner (or a sample ridge-pattern
+                image for testing). The server extracts and encrypts a template from each — the image
+                itself is never stored.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Left Fingerprint Ref</Label>
-                  <div className="flex gap-1">
-                    <Input value={form.leftFingerprintTemplateRef} onChange={(e) => setForm({ ...form, leftFingerprintTemplateRef: e.target.value })} placeholder="from device SDK" />
-                    <Button type="button" variant="outline" size="icon" onClick={() => setForm({ ...form, leftFingerprintTemplateRef: genRef() })} title="Generate new placeholder ref">
-                      <Dices className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
+                <FingerprintCaptureSlot label="Left Fingerprint Scan" file={leftFile} onCapture={setLeftFile} onClear={() => setLeftFile(null)} scannerConnected={scannerConnected} />
                 <div className="space-y-2">
                   <Label>Left Finger</Label>
                   <Select value={form.leftFingerName} onValueChange={(v) => setForm({ ...form, leftFingerName: v })}>
@@ -158,15 +256,7 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
                     <SelectContent>{FINGER_NAMES.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Right Fingerprint Ref</Label>
-                  <div className="flex gap-1">
-                    <Input value={form.rightFingerprintTemplateRef} onChange={(e) => setForm({ ...form, rightFingerprintTemplateRef: e.target.value })} placeholder="from device SDK" />
-                    <Button type="button" variant="outline" size="icon" onClick={() => setForm({ ...form, rightFingerprintTemplateRef: genRef() })} title="Generate new placeholder ref">
-                      <Dices className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
+                <FingerprintCaptureSlot label="Right Fingerprint Scan" file={rightFile} onCapture={setRightFile} onClear={() => setRightFile(null)} scannerConnected={scannerConnected} />
                 <div className="space-y-2">
                   <Label>Right Finger</Label>
                   <Select value={form.rightFingerName} onValueChange={(v) => setForm({ ...form, rightFingerName: v })}>
@@ -175,19 +265,18 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Face Ref (optional)</Label>
-                  <Input value={form.faceTemplateRef} onChange={(e) => setForm({ ...form, faceTemplateRef: e.target.value })} />
-                </div>
-                <div className="space-y-2">
                   <Label>Enrolling Device ID</Label>
                   <Input value={form.enrolledDeviceId} onChange={(e) => setForm({ ...form, enrolledDeviceId: e.target.value })} />
                 </div>
               </div>
-              <Button onClick={handleEnroll}><Fingerprint className="w-4 h-4 mr-1" /> Enroll</Button>
+              <div className="flex gap-2">
+                <Button onClick={handleEnroll}><Fingerprint className="w-4 h-4 mr-1" /> {bioData ? "Replace" : "Enroll"}</Button>
+                {bioData && <Button variant="outline" onClick={() => { setReEnrolling(false); resetFormState(); }}>Cancel</Button>}
+              </div>
             </div>
           )}
 
-          {selectedUuid && !loading && bioData && (
+          {selectedUuid && !loading && !showForm && bioData && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <Badge variant={bioData.status === "ACTIVE" ? "default" : "secondary"}>{bioData.status}</Badge>
@@ -197,26 +286,20 @@ const EnrollmentPanel = ({ config }: { config: OwnerConfig }) => {
                 <div><span className="text-muted-foreground">Left finger:</span> {bioData.leftFingerName}</div>
                 <div><span className="text-muted-foreground">Right finger:</span> {bioData.rightFingerName}</div>
               </div>
+              <Button size="sm" variant="outline" onClick={() => setReEnrolling(true)}>
+                <Fingerprint className="w-4 h-4 mr-1" /> Re-enroll
+              </Button>
 
               <div className="border-t pt-4 space-y-2">
-                <p className="text-sm font-medium">Test Scan</p>
+                <p className="text-sm font-medium">Identify</p>
                 <p className="text-xs text-muted-foreground">
-                  {platformAuthAvailable
-                    ? "Uses your device's fingerprint/Windows Hello prompt as a local test gesture, then fires the same clock-in/out event a real device would."
-                    : "No fingerprint/Windows Hello reader detected for this browser session — either it isn't set up at the OS level yet, or you're not on localhost/https. Use \"Simulate scan\" instead, or see the setup note below."}
+                  Upload a probe fingerprint scan — the server matches it against every ACTIVE enrolled
+                  student/staff (not just this person) and records the resulting attendance event.
                 </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => runCapture(true)} disabled={!platformAuthAvailable}>
-                    <ScanFace className="w-4 h-4 mr-1" /> Scan with fingerprint
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => runCapture(false)}>Simulate scan (no prompt)</Button>
-                </div>
-                {!platformAuthAvailable && (
-                  <p className="text-xs text-muted-foreground">
-                    To enable: Windows → Settings → Accounts → Sign-in options → Fingerprint (enroll a print there first);
-                    Mac → System Settings → Touch ID. The browser can only use a reader the OS already has enrolled.
-                  </p>
-                )}
+                <FingerprintCaptureSlot label="Probe Scan" file={probeFile} onCapture={setProbeFile} onClear={() => setProbeFile(null)} scannerConnected={scannerConnected} />
+                <Button size="sm" onClick={runIdentify} disabled={identifying || !probeFile}>
+                  <ScanFace className="w-4 h-4 mr-1" /> {identifying ? "Identifying..." : "Identify & Record Attendance"}
+                </Button>
               </div>
 
               <div className="border-t pt-4 flex gap-2">
@@ -350,7 +433,7 @@ const DevicesPanel = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Device API Key</DialogTitle>
-            <DialogDescription>Copy this now — it will not be shown again. Configure it on the device (or its bridge software) as the X-Device-Key header, alongside X-Device-Code: {newKey?.deviceCode}.</DialogDescription>
+            <DialogDescription>Copy this now — it will not be shown again. Configure it on the device (or its bridge software) as the X-Device-Key header, alongside X-Device-Code: {newKey?.deviceCode}. The bridge should POST each captured fingerprint scan image to /attendance/device-capture — the server identifies who it is, not the device.</DialogDescription>
           </DialogHeader>
           <div className="p-3 bg-muted rounded-lg font-mono text-sm break-all">{newKey?.apiKey}</div>
         </DialogContent>
@@ -514,15 +597,49 @@ const studentConfig: OwnerConfig = {
 
 const BiometricsSetupPage = () => {
   const navigate = useNavigate();
+  const [scannerConnected, setScannerConnected] = useState(fingerprintScanner.connected);
+  const [connecting, setConnecting] = useState(false);
+
+  const connectScanner = async () => {
+    setConnecting(true);
+    try {
+      await fingerprintScanner.connect();
+      setScannerConnected(true);
+    } catch (err: any) {
+      Swal.fire({ icon: "error", title: "Couldn't connect to scanner", text: err?.message ?? String(err), showConfirmButton: true });
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const disconnectScanner = async () => {
+    await fingerprintScanner.disconnect();
+    setScannerConnected(false);
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate("/admin/management")}><ArrowLeft className="w-5 h-5" /></Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold tracking-tight">Biometrics & Devices</h1>
           <p className="text-muted-foreground">Enroll staff/student fingerprints, manage devices, and assign class teachers</p>
         </div>
+        {isFingerprintScannerSupported() ? (
+          scannerConnected ? (
+            <Button variant="outline" onClick={disconnectScanner}>
+              <Usb className="w-4 h-4 mr-1 text-green-600" /> Scanner connected — Disconnect
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={connectScanner} disabled={connecting}>
+              <Usb className="w-4 h-4 mr-1" /> {connecting ? "Connecting..." : "Connect Scanner"}
+            </Button>
+          )
+        ) : (
+          <span className="text-xs text-muted-foreground max-w-[220px] text-right">
+            Live scanning needs Chrome or Edge (desktop/Android) — this browser will fall back to file upload.
+          </span>
+        )}
       </div>
 
       <Tabs defaultValue="staff">
@@ -532,8 +649,8 @@ const BiometricsSetupPage = () => {
           <TabsTrigger value="devices">Devices</TabsTrigger>
           <TabsTrigger value="classteachers">Class Teachers</TabsTrigger>
         </TabsList>
-        <TabsContent value="staff" className="mt-4"><EnrollmentPanel config={staffConfig} /></TabsContent>
-        <TabsContent value="students" className="mt-4"><EnrollmentPanel config={studentConfig} /></TabsContent>
+        <TabsContent value="staff" className="mt-4"><EnrollmentPanel config={staffConfig} scannerConnected={scannerConnected} /></TabsContent>
+        <TabsContent value="students" className="mt-4"><EnrollmentPanel config={studentConfig} scannerConnected={scannerConnected} /></TabsContent>
         <TabsContent value="devices" className="mt-4"><DevicesPanel /></TabsContent>
         <TabsContent value="classteachers" className="mt-4"><ClassTeachersPanel /></TabsContent>
       </Tabs>

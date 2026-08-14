@@ -67,9 +67,9 @@ const AppLayout = ({ role }: AppLayoutProps) => {
                   {theme === "system" && <Check className="w-4 h-4 ml-auto" />}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled>
+                <DropdownMenuItem disabled={role !== "teacher"} onClick={role === "teacher" ? () => navigate("/teacher/profile") : undefined}>
                   <KeyRound className="w-4 h-4 mr-2" />
-                  Change Password
+                  {role === "teacher" ? "My Profile" : "Change Password"}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => { logout(); navigate("/", { replace: true }); }} className="text-destructive">
                   <LogOut className="w-4 h-4 mr-2" />

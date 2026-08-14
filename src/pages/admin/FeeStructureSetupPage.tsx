@@ -40,7 +40,10 @@ import Pagination from "@/utils/Pagination";
 import { FeeApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
-const emptyForm: FeeItemFormValues = { name: "", grades: [], amount: 0, term: "Per Term", category: "OTHER", mandatory: true, active: true };
+const emptyForm: FeeItemFormValues = {
+  name: "", grades: [], amount: 0, term: "Per Term", term1Amount: "", term2Amount: "", term3Amount: "",
+  category: "OTHER", mandatory: true, active: true,
+};
 interface GradeLevelOption { uuid: string; name: string; active: boolean; }
 const toGradeLevelOption = (raw: any): GradeLevelOption => ({
   uuid: raw.uuid,
@@ -54,6 +57,9 @@ const billingCycleFor = (period: string): string[] => (period === "Full Year" ? 
 const WORKFLOW_TABS = ["maker", "approver", "approved"] as const;
 
 type TermKey = (typeof TERMS)[number];
+// The Maker Workspace also allows an "all" sentinel on grade/term purely to preview every fee
+// item at once — a submittable structure is still always exactly one grade + one term.
+type TermSelection = TermKey | "all";
 type WorkflowTab = (typeof WORKFLOW_TABS)[number];
 type StructureStatus = "Draft" | "Pending Approval" | "Rejected" | "Approved";
 
@@ -122,10 +128,23 @@ const toFeeItem = (raw: any) => ({
   grades: (raw.gradeLevels ?? []).map((g: any) => g.name) as string[],
   amount: raw.amount as number,
   term: raw.term ?? "Per Term",
+  term1Amount: raw.term1Amount ?? undefined,
+  term2Amount: raw.term2Amount ?? undefined,
+  term3Amount: raw.term3Amount ?? undefined,
   category: raw.category ?? "OTHER",
   mandatory: raw.mandatory ?? true,
   active: Boolean(raw.active),
 });
+
+/** "Per Term" items can carry a per-term default override; everything else (and any unset
+ *  override) falls back to the item's flat `amount`. Mirrors FeeService.resolveAmount(). */
+const resolveAmount = (item: ReturnType<typeof toFeeItem>, period: TermKey): number => {
+  if (item.term === "Per Term") {
+    const perTerm = period === "Term 1" ? item.term1Amount : period === "Term 2" ? item.term2Amount : period === "Term 3" ? item.term3Amount : undefined;
+    if (perTerm != null) return perTerm;
+  }
+  return item.amount;
+};
 
 const toStructureRecord = (raw: any): FeeStructureRecord => ({
   id: raw.uuid,
@@ -170,8 +189,8 @@ const FeeStructureSetupPage = () => {
   const gradeOptions = gradeLevels.filter((g) => g.active).map((g) => g.name);
 
   const [activeTab, setActiveTab] = useState<WorkflowTab>("maker");
-  const [selectedGrade, setSelectedGrade] = useState<string>("");
-  const [selectedTerm, setSelectedTerm] = useState<TermKey>("Term 1");
+  const [selectedGrade, setSelectedGrade] = useState<string>("all");
+  const [selectedTerm, setSelectedTerm] = useState<TermSelection>("all");
   const [selectedYear, setSelectedYear] = useState<number>(CURRENT_YEAR);
   const [draftLines, setDraftLines] = useState<GradeStatementLine[] | null>(null);
   const [selectedDueDate, setSelectedDueDate] = useState("");
@@ -235,11 +254,6 @@ const FeeStructureSetupPage = () => {
     SchoolApi.getGradeLevels().then((data) => setGradeLevels(data.map(toGradeLevelOption)));
   }, []);
 
-  // Grade options load asynchronously — default the Maker Workspace to the first one once available.
-  useEffect(() => {
-    if (!selectedGrade && gradeOptions.length) setSelectedGrade(gradeOptions[0]);
-  }, [gradeOptions, selectedGrade]);
-
   // Latest approved lines per grade/term, derived from the loaded structures.
   const liveMap = useMemo<GradeStatementMap>(() => {
     const map: GradeStatementMap = {};
@@ -252,10 +266,36 @@ const FeeStructureSetupPage = () => {
     return map;
   }, [structures]);
 
+  // Which grade/term combos already have a submission sitting with the Approver — used to stop
+  // the Maker Workspace from looking like a fresh, resubmittable slate for something that's
+  // already out of the maker's hands (it should only come back once rejected).
+  const pendingMap = useMemo(() => {
+    const map: Record<string, Partial<Record<TermKey, FeeStructureRecord>>> = {};
+    for (const record of structures) {
+      if (record.status !== "Pending Approval") continue;
+      map[record.grade] = { ...(map[record.grade] ?? {}), [record.term]: record };
+    }
+    return map;
+  }, [structures]);
+
   const currentUserName = user?.userName ?? "";
   const isMaker = user?.permissions?.includes("FEES_MANAGE") ?? false;
   const isApprover = user?.permissions?.includes("FEES_APPROVE") ?? false;
   const isReadOnly = !isMaker;
+  // A submittable structure record is still always exactly one grade + one term on the backend,
+  // so "all" fans out into one record per matching grade×term combo rather than a single record.
+  const isAllGrades = selectedGrade === "all";
+  const isAllTerms = selectedTerm === "all";
+  const isAllScope = isAllGrades || isAllTerms;
+  const targetGrades = isAllGrades ? gradeOptions : [selectedGrade];
+  const targetTerms: TermKey[] = isAllTerms ? [...TERMS] : [selectedTerm as TermKey];
+
+  // If the exact grade+term already has a submission sitting with the Approver, the workspace
+  // must not look like an editable, resubmittable slate for it — that's what let makers
+  // unknowingly create duplicate pending submissions. Only a rejected structure should come back
+  // to the maker for changes (loadRejectedForEditing already sets editingRejectedId for that).
+  const pendingRecord = !isAllScope ? pendingMap[selectedGrade]?.[selectedTerm as TermKey] : undefined;
+  const isLockedPending = Boolean(pendingRecord) && !editingRejectedId;
 
   // A fee item with no grades selected applies to all grades; otherwise it only applies where tagged.
   // Also period-scoped: a "Per Term" item only ever fits a Term 1/2/3 structure, and a "Per Year"/
@@ -267,7 +307,7 @@ const FeeStructureSetupPage = () => {
   };
 
   const defaultLines = (grade: string, period: TermKey): GradeStatementLine[] =>
-    itemsForGrade(grade, period).map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount }));
+    itemsForGrade(grade, period).map((item) => ({ itemId: item.id, enabled: item.active, amount: resolveAmount(item, period) }));
 
   const approvedLines = (grade: string, term: TermKey): GradeStatementLine[] => {
     const existing = liveMap[grade]?.[term];
@@ -277,25 +317,81 @@ const FeeStructureSetupPage = () => {
     const knownIds = new Set(existing.map((line) => line.itemId));
     return [
       ...existing.filter((line) => gradeItems.some((item) => item.id === line.itemId)),
-      ...gradeItems.filter((item) => !knownIds.has(item.id)).map((item) => ({ itemId: item.id, enabled: false, amount: item.amount })),
+      ...gradeItems.filter((item) => !knownIds.has(item.id)).map((item) => ({ itemId: item.id, enabled: false, amount: resolveAmount(item, term) })),
     ];
   };
 
-  const baseLines = useMemo(
-    () => approvedLines(selectedGrade, selectedTerm),
-    [liveMap, selectedGrade, selectedTerm, feeItems],
+  // Union of every item eligible in at least one target grade×term combo — the editable master
+  // row set when "all" is in play. Same grade/cycle rules itemsForGrade() applies per-combo.
+  const scopedItems = useMemo(() => {
+    if (!isAllScope) return [];
+    return feeItems.filter((item) => {
+      const gradeMatches = isAllGrades || item.grades.length === 0 || item.grades.includes(selectedGrade);
+      const termMatches = isAllTerms || billingCycleFor(selectedTerm as TermKey).includes(item.term);
+      return gradeMatches && termMatches;
+    });
+  }, [feeItems, isAllScope, isAllGrades, isAllTerms, selectedGrade, selectedTerm]);
+
+  // In "all" scope there's no single approved baseline to diff against — each combo gets its
+  // own baseline when fanned out — so start from each item's own active flag and flat amount.
+  const scopedBaseLines = useMemo<GradeStatementLine[]>(
+    () => scopedItems.map((item) => ({ itemId: item.id, enabled: item.active, amount: item.amount })),
+    [scopedItems],
   );
-  const currentLines = draftLines ?? baseLines;
-  // For a grade/term with no approved structure yet, baseLines is just a synthetic default
-  // (derived from currently-active fee items) — comparing against it would disable the button
-  // the moment a maker's selection happens to match those defaults. In that case "dirty" should
-  // mean "something is actually selected", not "differs from the synthetic default".
-  const hasApprovedBaseline = Boolean(liveMap[selectedGrade]?.[selectedTerm]?.length);
+
+  const baseLines = useMemo(
+    () => (isAllScope ? scopedBaseLines : approvedLines(selectedGrade, selectedTerm as TermKey)),
+    [liveMap, selectedGrade, selectedTerm, feeItems, isAllScope, scopedBaseLines],
+  );
+  // While locked on a pending combo, show exactly what was submitted (read-only) instead of a
+  // fresh editable default — nothing here is meant to be changed or resubmitted.
+  const currentLines = isLockedPending ? pendingRecord!.lines : (draftLines ?? baseLines);
+  // For a grade/term with no approved structure yet (or "all" scope), baseLines is just a
+  // synthetic default (derived from currently-active fee items) — comparing against it would
+  // disable the button the moment a maker's selection happens to match those defaults. In that
+  // case "dirty" should mean "something is actually selected", not "differs from the default".
+  const hasApprovedBaseline = !isAllScope && Boolean(liveMap[selectedGrade]?.[selectedTerm as TermKey]?.length);
   const hasSelection = currentLines.some((line) => line.enabled);
-  const isDirty = Boolean(editingRejectedId) || (hasApprovedBaseline
+  const isDirty = !isLockedPending && (Boolean(editingRejectedId) || (hasApprovedBaseline
     ? JSON.stringify(currentLines) !== JSON.stringify(baseLines)
-    : hasSelection);
+    : hasSelection));
   const statementTotal = currentLines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+
+  // A "Per Term" item's single master-row amount can only stand in for one concrete term. Once
+  // "All Terms" fans a single master selection out across Term 1/2/3, that one number can no
+  // longer represent all three — so each combo must fall back to the item's own per-term amount
+  // (resolveAmount) instead of reusing whatever number happens to sit in the master row.
+  const isAmbiguousPerTermAmount = (item: ReturnType<typeof toFeeItem>) => isAllTerms && item.term === "Per Term";
+
+  // Fans the master (item-level) selection out into one set of lines per target grade×term combo.
+  // A maker override on the master row's amount only applies where it's unambiguous which term it
+  // means (see isAmbiguousPerTermAmount) — this is what actually gets submitted as separate
+  // structure records in "all" scope.
+  const linesForCombo = (grade: string, term: TermKey): GradeStatementLine[] =>
+    itemsForGrade(grade, term).map((item) => {
+      const master = currentLines.find((line) => line.itemId === item.id);
+      const canOverrideAmount = master?.enabled && !isAmbiguousPerTermAmount(item);
+      return {
+        itemId: item.id,
+        enabled: Boolean(master?.enabled),
+        amount: canOverrideAmount ? (Number(master.amount) || 0) : resolveAmount(item, term),
+      };
+    });
+
+  // A combo already pending approval is skipped entirely — it must not be silently resubmitted
+  // as a duplicate; it only comes back to the maker if the approver rejects it.
+  const bulkCombos = useMemo(() => {
+    if (!isAllScope) return [];
+    return targetGrades
+      .flatMap((grade) => targetTerms.map((term) => ({ grade, term, lines: linesForCombo(grade, term) })))
+      .filter((combo) => combo.lines.some((line) => line.enabled))
+      .filter((combo) => !pendingMap[combo.grade]?.[combo.term]);
+  }, [isAllScope, targetGrades, targetTerms, currentLines, feeItems, pendingMap]);
+  const bulkGrandTotal = bulkCombos.reduce((sum, combo) => sum + combo.lines.filter((l) => l.enabled).reduce((s, l) => s + (Number(l.amount) || 0), 0), 0);
+  const bulkPendingSkipped = useMemo(() => {
+    if (!isAllScope) return 0;
+    return targetGrades.flatMap((grade) => targetTerms.map((term) => Boolean(pendingMap[grade]?.[term]))).filter(Boolean).length;
+  }, [isAllScope, targetGrades, targetTerms, pendingMap]);
 
   const pendingStructures = structures.filter((record) => record.status === "Pending Approval");
   const rejectedStructures = structures.filter((record) => record.status === "Rejected");
@@ -375,6 +471,25 @@ const FeeStructureSetupPage = () => {
   const itemName = (id: number) => feeItems.find((item) => item.id === id)?.name ?? `Item #${id}`;
   const sumEnabled = (lines: GradeStatementLine[]) => lines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
 
+  // Grade → Term → line-item breakdown for the bulk preview: each combo's items with their
+  // amount, a term subtotal, a grade subtotal across its terms, and (via bulkGrandTotal) the
+  // overall total — so reviewing a big "all grades/terms" submission reads like a statement
+  // instead of a flat list of counts.
+  const bulkGroupedByGrade = useMemo(() => {
+    if (!isAllScope) return [];
+    return targetGrades
+      .map((grade) => {
+        const combos = bulkCombos.filter((combo) => combo.grade === grade);
+        return { grade, combos, gradeTotal: combos.reduce((sum, combo) => sum + sumEnabled(combo.lines), 0) };
+      })
+      .filter((group) => group.combos.length > 0);
+  }, [isAllScope, targetGrades, bulkCombos]);
+
+  // Proposed/approved totals across whatever the Approver/Approved filters currently match —
+  // "All Grades" included, since filteredPending/filteredApproved already apply every active filter.
+  const filteredPendingTotal = filteredPending.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
+  const filteredApprovedTotal = filteredApproved.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
+
   const printApprovedStructure = (record: FeeStructureRecord) => {
     const enabled = record.lines.filter((l) => l.enabled);
     const total = sumEnabled(record.lines);
@@ -446,7 +561,7 @@ const FeeStructureSetupPage = () => {
   };
 
   const updateLine = (itemId: number, patch: Partial<GradeStatementLine>) => {
-    if (!isMaker || isReadOnly) return;
+    if (!isMaker || isReadOnly || isLockedPending) return;
     setDraftLines(currentLines.map((line) => (line.itemId === itemId ? { ...line, ...patch } : line)));
   };
 
@@ -462,16 +577,28 @@ const FeeStructureSetupPage = () => {
       Swal.fire({ icon: "error", title: "Maker access required", showConfirmButton: true });
       return;
     }
+    if (isAllScope && bulkCombos.length === 0) {
+      Swal.fire({ icon: "warning", title: "No fee structure changes to save", showConfirmButton: true });
+      return;
+    }
     try {
-      await FeeApi.saveDraft({
-        academicYear: selectedYear,
-        grade: selectedGrade,
-        term: selectedTerm,
-        lines: currentLines,
-        note: submitNote,
-        dueDate: selectedDueDate || undefined,
-      });
-      Swal.fire({ title: "Success", text: `Draft saved — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
+      if (isAllScope) {
+        await Promise.all(bulkCombos.map((combo) => FeeApi.saveDraft({
+          academicYear: selectedYear, grade: combo.grade, term: combo.term, lines: combo.lines,
+          note: submitNote, dueDate: selectedDueDate || undefined,
+        })));
+        Swal.fire({ title: "Success", text: `Draft saved for ${bulkCombos.length} fee structure(s)`, icon: "success", showConfirmButton: true });
+      } else {
+        await FeeApi.saveDraft({
+          academicYear: selectedYear,
+          grade: selectedGrade,
+          term: selectedTerm,
+          lines: currentLines,
+          note: submitNote,
+          dueDate: selectedDueDate || undefined,
+        });
+        Swal.fire({ title: "Success", text: `Draft saved — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
+      }
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to save draft", text: getBackendErrorMessage(err), showConfirmButton: true });
@@ -483,7 +610,7 @@ const FeeStructureSetupPage = () => {
       Swal.fire({ icon: "error", title: "Maker access required", text: "You need the FEES_MANAGE permission to prepare fee structures.", showConfirmButton: true });
       return;
     }
-    if (!isDirty) {
+    if (isAllScope ? bulkCombos.length === 0 : !isDirty) {
       Swal.fire({ icon: "warning", title: "No fee structure changes to submit", showConfirmButton: true });
       return;
     }
@@ -492,19 +619,30 @@ const FeeStructureSetupPage = () => {
 
   const submitForApproval = async () => {
     try {
-      await FeeApi.submitStructure({
-        academicYear: selectedYear,
-        grade: selectedGrade,
-        term: selectedTerm,
-        lines: currentLines,
-        note: submitNote,
-        dueDate: selectedDueDate || undefined,
-        reworkUuid: editingRejectedId ?? undefined,
-      });
-      setPreviewOpen(false);
-      resetMakerForm();
-      setActiveTab("approver");
-      Swal.fire({ title: "Success", text: `Moved to approver — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
+      if (isAllScope) {
+        await Promise.all(bulkCombos.map((combo) => FeeApi.submitStructure({
+          academicYear: selectedYear, grade: combo.grade, term: combo.term, lines: combo.lines,
+          note: submitNote, dueDate: selectedDueDate || undefined,
+        })));
+        setPreviewOpen(false);
+        resetMakerForm();
+        setActiveTab("approver");
+        Swal.fire({ title: "Success", text: `Moved ${bulkCombos.length} fee structure(s) to approver`, icon: "success", showConfirmButton: true });
+      } else {
+        await FeeApi.submitStructure({
+          academicYear: selectedYear,
+          grade: selectedGrade,
+          term: selectedTerm,
+          lines: currentLines,
+          note: submitNote,
+          dueDate: selectedDueDate || undefined,
+          reworkUuid: editingRejectedId ?? undefined,
+        });
+        setPreviewOpen(false);
+        resetMakerForm();
+        setActiveTab("approver");
+        Swal.fire({ title: "Success", text: `Moved to approver — ${selectedGrade} · ${selectedTerm}`, icon: "success", showConfirmButton: true });
+      }
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to submit", text: getBackendErrorMessage(err), showConfirmButton: true });
@@ -530,14 +668,92 @@ const FeeStructureSetupPage = () => {
       Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
       return;
     }
+    const { value: note, isConfirmed } = await Swal.fire({
+      icon: "question",
+      title: `Approve ${record.grade} · ${record.term}?`,
+      text: `Total KES ${sumEnabled(record.lines).toLocaleString()}. This becomes the live fee structure.`,
+      input: "textarea",
+      inputPlaceholder: "Approval note (required)",
+      inputValidator: (value) => (!value || !value.trim() ? "An approval note is required" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "Approve",
+    });
+    if (!isConfirmed || !note || !note.trim()) return;
     try {
-      await FeeApi.approveStructure(record.id);
+      await FeeApi.approveStructure(record.id, note);
       setReviewing(null);
       setActiveTab("approved");
       Swal.fire({ title: "Success", text: `${record.grade} · ${record.term} is now live`, icon: "success", showConfirmButton: true });
       await load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Failed to approve", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
+  };
+
+  // Approves every pending structure currently matching the Approver Queue filters (search,
+  // grade, year, date range) — not just the visible page — so "All Grades" or a narrowed grade
+  // filter both approve exactly what's shown as the filtered total.
+  const approveAllFiltered = async () => {
+    if (!isApprover) {
+      Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
+      return;
+    }
+    if (filteredPending.length === 0) {
+      Swal.fire({ icon: "warning", title: "No fee structures match the current filters", showConfirmButton: true });
+      return;
+    }
+    const { value: note, isConfirmed } = await Swal.fire({
+      icon: "question",
+      title: `Approve ${filteredPending.length} fee structure(s)?`,
+      text: `This approves every fee structure matching the current filters — total KES ${filteredPendingTotal.toLocaleString()}.`,
+      input: "textarea",
+      inputPlaceholder: "Approval note (required, applied to all)",
+      inputValidator: (value) => (!value || !value.trim() ? "An approval note is required" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "Approve All",
+    });
+    if (!isConfirmed || !note || !note.trim()) return;
+    const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.approveStructure(record.id, note)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    await load();
+    if (failed > 0) {
+      Swal.fire({ icon: "warning", title: "Partially approved", text: `${results.length - failed} approved, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
+    } else {
+      Swal.fire({ title: "Success", text: `${results.length} fee structure(s) approved`, icon: "success", showConfirmButton: true });
+      setActiveTab("approved");
+    }
+  };
+
+  // Rejects every pending structure currently matching the Approver Queue filters, same scope as
+  // approveAllFiltered. A single reason is required and sent to every affected structure's maker.
+  const rejectAllFiltered = async () => {
+    if (!isApprover) {
+      Swal.fire({ icon: "error", title: "Approver access required", showConfirmButton: true });
+      return;
+    }
+    if (filteredPending.length === 0) {
+      Swal.fire({ icon: "warning", title: "No fee structures match the current filters", showConfirmButton: true });
+      return;
+    }
+    const { value: reason, isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: `Reject ${filteredPending.length} fee structure(s)?`,
+      text: `This rejects every fee structure matching the current filters — total KES ${filteredPendingTotal.toLocaleString()}.`,
+      input: "textarea",
+      inputPlaceholder: "Rejection reason (required, sent to each maker)",
+      inputValidator: (value) => (!value || !value.trim() ? "A rejection reason is required" : undefined),
+      showCancelButton: true,
+      confirmButtonText: "Reject All",
+    });
+    if (!isConfirmed || !reason || !reason.trim()) return;
+    const results = await Promise.allSettled(filteredPending.map((record) => FeeApi.rejectStructure(record.id, reason)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    await load();
+    if (failed > 0) {
+      Swal.fire({ icon: "warning", title: "Partially rejected", text: `${results.length - failed} rejected, ${failed} failed — check the queue and retry those.`, showConfirmButton: true });
+    } else {
+      Swal.fire({ title: "Success", text: `${results.length} fee structure(s) rejected`, icon: "success", showConfirmButton: true });
+      setActiveTab("maker");
     }
   };
 
@@ -568,7 +784,16 @@ const FeeStructureSetupPage = () => {
 
   const openEdit = (feeItem: typeof feeItems[number]) => {
     setEditingId(feeItem.id);
-    setForm({ name: feeItem.name, grades: feeItem.grades, amount: feeItem.amount, term: feeItem.term, category: feeItem.category, mandatory: feeItem.mandatory, active: feeItem.active });
+    // Pre-fill Term 1/2/3 from the resolved (fallback-to-flat-amount) value rather than leaving
+    // them blank, so editing a legacy "Per Term" item (saved before this per-term feature
+    // existed) starts from what's actually in effect today, not an empty slate.
+    setForm({
+      name: feeItem.name, grades: feeItem.grades, amount: feeItem.amount, term: feeItem.term,
+      term1Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 1")) : "",
+      term2Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 2")) : "",
+      term3Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 3")) : "",
+      category: feeItem.category, mandatory: feeItem.mandatory, active: feeItem.active,
+    });
     setOpen(true);
   };
 
@@ -576,7 +801,19 @@ const FeeStructureSetupPage = () => {
     const gradeLevelUuids = form.grades
       .map((name) => gradeLevels.find((g) => g.name === name)?.uuid)
       .filter((uuid): uuid is string => Boolean(uuid));
-    const payload = { name: form.name, amount: form.amount, term: form.term, category: form.category, mandatory: form.mandatory, active: form.active, gradeLevelUuids };
+    const isPerTerm = form.term === "Per Term";
+    // Backend `amount` stays required regardless of billing cycle — for "Per Term" items it's
+    // never shown/edited directly, so mirror Term 1 into it (also the fallback resolveAmount()
+    // uses for any legacy item that predates this per-term feature).
+    const payload = {
+      name: form.name,
+      amount: isPerTerm ? Number(form.term1Amount || 0) : form.amount,
+      term: form.term,
+      term1Amount: isPerTerm ? Number(form.term1Amount || 0) : null,
+      term2Amount: isPerTerm ? Number(form.term2Amount || 0) : null,
+      term3Amount: isPerTerm ? Number(form.term3Amount || 0) : null,
+      category: form.category, mandatory: form.mandatory, active: form.active, gradeLevelUuids,
+    };
     try {
       if (editingId !== null) {
         await FeeApi.updateItem(editingId, payload);
@@ -737,11 +974,17 @@ const FeeStructureSetupPage = () => {
                   </Select>
                   <Select value={selectedGrade} onValueChange={(value) => { setSelectedGrade(value); setDraftLines(null); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      <SelectItem value="all">All Grades</SelectItem>
+                      {gradeOptions.map((grade) => <SelectItem key={grade} value={grade}>{grade}</SelectItem>)}
+                    </SelectContent>
                   </Select>
-                  <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value as TermKey); setDraftLines(null); setEditingRejectedId(null); }}>
+                  <Select value={selectedTerm} onValueChange={(value) => { setSelectedTerm(value as TermSelection); setDraftLines(null); setEditingRejectedId(null); }}>
                     <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{TERMS.map((term) => <SelectItem key={term} value={term}>{term}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      <SelectItem value="all">All Terms</SelectItem>
+                      {TERMS.map((term) => <SelectItem key={term} value={term}>{term}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                   <Input type="date" className="w-[150px]" value={selectedDueDate} onChange={(e) => setSelectedDueDate(e.target.value)} placeholder="Due date" />
                   {isDirty && <Button size="sm" variant="outline" onClick={resetMakerForm}><RotateCcw className="h-4 w-4" /> Clear</Button>}
@@ -754,6 +997,19 @@ const FeeStructureSetupPage = () => {
               {editingRejectedId && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
                   Editing a rejected fee structure. Update the lines and submit again for approval.
+                </div>
+              )}
+              {isLockedPending && pendingRecord && (
+                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
+                  {selectedGrade} · {selectedTerm} already has a fee structure pending approval — submitted by {pendingRecord.maker} on {fmtDate(pendingRecord.submittedAt)}, total KES {sumEnabled(pendingRecord.lines).toLocaleString()}.
+                  {" "}Shown below for reference only; editing is disabled until the Approver approves or rejects it. It'll come back here to edit only if rejected.
+                </div>
+              )}
+              {isAllScope && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                  Building a shared structure for {isAllGrades ? `all ${targetGrades.length} grade(s)` : selectedGrade} · {isAllTerms ? "all terms" : selectedTerm}.
+                  {" "}This will submit one structure per matching grade/term — amounts you set here apply to every one of them (per-term pricing still comes from each fee item's own Term 1/2/3 amounts). Pick one specific grade and term for one-off adjustments.
+                  {bulkPendingSkipped > 0 && ` ${bulkPendingSkipped} combo(s) already pending approval will be skipped, not resubmitted.`}
                 </div>
               )}
               <Table>
@@ -773,27 +1029,42 @@ const FeeStructureSetupPage = () => {
                     return (
                       <TableRow key={line.itemId}>
                         <TableCell className="text-center">
-                          <Checkbox checked={line.enabled} disabled={!isMaker || isReadOnly} onCheckedChange={(checked) => updateLine(line.itemId, { enabled: Boolean(checked) })} />
+                          <Checkbox checked={line.enabled} disabled={!isMaker || isReadOnly || isLockedPending} onCheckedChange={(checked) => updateLine(line.itemId, { enabled: Boolean(checked) })} />
                         </TableCell>
                         <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell><Badge variant="outline">{gradeLabel(item.grades)}</Badge></TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
                         <TableCell>
-                          <Input
-                            type="number"
-                            className="h-9 text-right"
-                            value={line.amount}
-                            disabled={!line.enabled || !isMaker || isReadOnly}
-                            onChange={(event) => updateLine(line.itemId, { amount: Number(event.target.value) })}
-                          />
+                          {isAmbiguousPerTermAmount(item) ? (
+                            <span className="block text-right text-xs text-muted-foreground whitespace-nowrap">
+                              T1 {resolveAmount(item, "Term 1").toLocaleString()} · T2 {resolveAmount(item, "Term 2").toLocaleString()} · T3 {resolveAmount(item, "Term 3").toLocaleString()}
+                            </span>
+                          ) : (
+                            <Input
+                              type="number"
+                              className="h-9 text-right"
+                              value={line.amount}
+                              disabled={!line.enabled || !isMaker || isReadOnly || isLockedPending}
+                              onChange={(event) => updateLine(line.itemId, { amount: Number(event.target.value) })}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     );
                   })}
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-right font-semibold">Total for {selectedGrade} · {selectedTerm}</TableCell>
-                    <TableCell className="text-right font-bold text-primary">KES {statementTotal.toLocaleString()}</TableCell>
-                  </TableRow>
+                  {isAllScope ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-right font-semibold">
+                        {bulkCombos.length} fee structure{bulkCombos.length === 1 ? "" : "s"} will be built ({targetGrades.length} grade(s) × {targetTerms.length} term(s))
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-primary">KES {bulkGrandTotal.toLocaleString()}</TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-right font-semibold">Total for {selectedGrade} · {selectedTerm}</TableCell>
+                      <TableCell className="text-right font-bold text-primary">KES {statementTotal.toLocaleString()}</TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -870,7 +1141,15 @@ const FeeStructureSetupPage = () => {
                         <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell className="text-sm">{gradeLabel(item.grades)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{item.term}</TableCell>
-                        <TableCell className="text-right font-semibold">{item.amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {item.term === "Per Term" && (item.term1Amount != null || item.term2Amount != null || item.term3Amount != null) ? (
+                            <span className="text-xs font-normal whitespace-nowrap">
+                              T1 {resolveAmount(item, "Term 1").toLocaleString()} · T2 {resolveAmount(item, "Term 2").toLocaleString()} · T3 {resolveAmount(item, "Term 3").toLocaleString()}
+                            </span>
+                          ) : (
+                            item.amount.toLocaleString()
+                          )}
+                        </TableCell>
                         <TableCell className="text-center"><Switch checked={item.active} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
@@ -929,8 +1208,24 @@ const FeeStructureSetupPage = () => {
         <TabsContent value="approver" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Approver Queue</CardTitle>
-              <CardDescription>{filteredPending.length} of {pendingStructures.length} fee structure(s) awaiting approval.</CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-lg">Approver Queue</CardTitle>
+                  <CardDescription>{filteredPending.length} of {pendingStructures.length} fee structure(s) awaiting approval.</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-1.5 text-right text-sm">
+                    <span className="text-muted-foreground">Proposed Total{approverGrade === "all" ? " (All Grades)" : ` (${approverGrade})`}: </span>
+                    <span className="font-bold text-warning">KES {filteredPendingTotal.toLocaleString()}</span>
+                  </div>
+                  <Button size="sm" disabled={!isApprover || filteredPending.length === 0} onClick={approveAllFiltered}>
+                    <CheckCircle2 className="h-4 w-4" /> Approve All ({filteredPending.length})
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={!isApprover || filteredPending.length === 0} onClick={rejectAllFiltered}>
+                    <XCircle className="h-4 w-4 text-destructive" /> Reject All ({filteredPending.length})
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="mb-4 flex flex-wrap items-end gap-2">
@@ -1013,8 +1308,16 @@ const FeeStructureSetupPage = () => {
         <TabsContent value="approved" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Approved Fee Structures History</CardTitle>
-              <CardDescription>All approved versions remain available for review.</CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-lg">Approved Fee Structures History</CardTitle>
+                  <CardDescription>All approved versions remain available for review.</CardDescription>
+                </div>
+                <div className="rounded-md border border-success/30 bg-success/5 px-3 py-1.5 text-right text-sm">
+                  <span className="text-muted-foreground">Approved Total{approvedGrade === "all" ? " (All Grades)" : ` (${approvedGrade})`}: </span>
+                  <span className="font-bold text-success">KES {filteredApprovedTotal.toLocaleString()}</span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="mb-4 flex flex-wrap items-end gap-2">
@@ -1171,15 +1474,58 @@ const FeeStructureSetupPage = () => {
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Preview Fee Structure</DialogTitle>
-            <DialogDescription>{selectedGrade} · {selectedTerm} will move to the Approver queue after submission.</DialogDescription>
+            <DialogTitle>Preview Fee Structure{isAllScope ? "s" : ""}</DialogTitle>
+            <DialogDescription>
+              {isAllScope
+                ? `${bulkCombos.length} fee structure(s) across ${targetGrades.length} grade(s) × ${targetTerms.length} term(s) will move to the Approver queue after submission.`
+                : `${selectedGrade} · ${selectedTerm} will move to the Approver queue after submission.`}
+            </DialogDescription>
           </DialogHeader>
-          {renderStructureDiff({
+          {isAllScope ? (
+            <div className="max-h-[60vh] space-y-4 overflow-auto pr-1">
+              {bulkGroupedByGrade.map((group) => (
+                <div key={group.grade} className="rounded-md border">
+                  <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+                    <span className="font-semibold">{group.grade}</span>
+                    <span className="text-sm font-semibold">Grade Total: KES {group.gradeTotal.toLocaleString()}</span>
+                  </div>
+                  <div className="space-y-3 p-3">
+                    {group.combos.map((combo) => {
+                      const enabledLines = combo.lines.filter((line) => line.enabled);
+                      const comboTotal = sumEnabled(combo.lines);
+                      return (
+                        <div key={`${combo.grade}-${combo.term}`} className="rounded-md border">
+                          <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-1.5 text-sm font-medium">
+                            <span>{combo.term}</span>
+                            <span>{combo.term} Total: KES {comboTotal.toLocaleString()}</span>
+                          </div>
+                          <Table>
+                            <TableBody>
+                              {enabledLines.map((line) => (
+                                <TableRow key={line.itemId}>
+                                  <TableCell className="py-1.5">{itemName(line.itemId)}</TableCell>
+                                  <TableCell className="py-1.5 text-right">KES {Number(line.amount).toLocaleString()}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                <span className="font-semibold">Grand Total ({bulkCombos.length} fee structure{bulkCombos.length === 1 ? "" : "s"})</span>
+                <span className="text-lg font-bold text-primary">KES {bulkGrandTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          ) : renderStructureDiff({
             id: editingRejectedId ?? "preview",
             version: 1,
             academicYear: selectedYear,
             grade: selectedGrade,
-            term: selectedTerm,
+            term: selectedTerm as TermKey,
             status: "Pending Approval",
             lines: currentLines,
             baseline: baseLines,
@@ -1193,7 +1539,7 @@ const FeeStructureSetupPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewOpen(false)}>Cancel</Button>
-            <Button onClick={submitForApproval}><Send className="h-4 w-4" /> Submit to Approver</Button>
+            <Button onClick={submitForApproval}><Send className="h-4 w-4" /> Submit to Approver{isAllScope ? ` (${bulkCombos.length})` : ""}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -19,8 +19,13 @@ interface LeaveType {
   days: number;
   paid: boolean;
   active: boolean;
+  requiresApproval: boolean;
   requiresDocument: boolean;
   documentTypes: string[];
+  carryForwardAllowed: boolean;
+  maxCarryForwardDays: number;
+  weekendPolicy: "COUNT_FULL" | "SATURDAY_HALF_DAY" | "EXCLUDE";
+  countPublicHolidays: boolean;
 }
 
 const toLeaveType = (lt: any): LeaveType => ({
@@ -29,8 +34,13 @@ const toLeaveType = (lt: any): LeaveType => ({
   days: lt.maxDaysPerYear,
   paid: lt.paid,
   active: lt.active,
+  requiresApproval: lt.requiresApproval ?? true,
   requiresDocument: lt.requiresDocument,
   documentTypes: lt.documentTypes ?? [],
+  carryForwardAllowed: lt.carryForwardAllowed ?? false,
+  maxCarryForwardDays: lt.maxCarryForwardDays ?? 0,
+  weekendPolicy: lt.weekendPolicy ?? "EXCLUDE",
+  countPublicHolidays: lt.countPublicHolidays ?? false,
 });
 
 const allDocumentTypes = [
@@ -39,7 +49,10 @@ const allDocumentTypes = [
   "Travel Itinerary", "Other",
 ];
 
-const emptyForm: LeaveTypeFormValues = { name: "", days: "", paid: true, requiresDocument: false, documentTypes: [] };
+const emptyForm: LeaveTypeFormValues = {
+  name: "", days: "", paid: true, requiresApproval: true, requiresDocument: false, documentTypes: [],
+  carryForwardAllowed: false, maxCarryForwardDays: "", weekendPolicy: "EXCLUDE", countPublicHolidays: false,
+};
 
 const LeaveTypesSetupPage = () => {
   const navigate = useNavigate();
@@ -60,9 +73,18 @@ const LeaveTypesSetupPage = () => {
   useEffect(() => { load(); }, []);
 
   const openAdd = () => { setEditing(null); setForm(emptyForm); setDialogOpen(true); };
+  const handleDialogOpenChange = (openState: boolean) => {
+    setDialogOpen(openState);
+    if (!openState) { setEditing(null); setForm(emptyForm); }
+  };
   const openEdit = (lt: LeaveType) => {
     setEditing(lt);
-    setForm({ name: lt.name, days: String(lt.days), paid: lt.paid, requiresDocument: lt.requiresDocument, documentTypes: [...lt.documentTypes] });
+    setForm({
+      name: lt.name, days: String(lt.days), paid: lt.paid, requiresApproval: lt.requiresApproval,
+      requiresDocument: lt.requiresDocument, documentTypes: [...lt.documentTypes],
+      carryForwardAllowed: lt.carryForwardAllowed, maxCarryForwardDays: String(lt.maxCarryForwardDays || ""),
+      weekendPolicy: lt.weekendPolicy, countPublicHolidays: lt.countPublicHolidays,
+    });
     setDialogOpen(true);
   };
 
@@ -72,8 +94,13 @@ const LeaveTypesSetupPage = () => {
       name: form.name,
       maxDaysPerYear: Number(form.days),
       paid: form.paid,
+      requiresApproval: form.requiresApproval,
       requiresDocument: form.requiresDocument,
       documentTypes: form.requiresDocument ? form.documentTypes : [],
+      carryForwardAllowed: form.carryForwardAllowed,
+      maxCarryForwardDays: form.carryForwardAllowed ? Number(form.maxCarryForwardDays || 0) : 0,
+      weekendPolicy: form.weekendPolicy,
+      countPublicHolidays: form.countPublicHolidays,
     };
     try {
       if (editing) {
@@ -83,7 +110,7 @@ const LeaveTypesSetupPage = () => {
         await LeaveApi.createType(payload);
         Swal.fire({ title: "Success", text: "Leave type added", icon: "success", showConfirmButton: true });
       }
-      setDialogOpen(false);
+      handleDialogOpenChange(false);
       load();
     } catch (err) {
       Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save leave type"), showConfirmButton: true });
@@ -145,13 +172,14 @@ const LeaveTypesSetupPage = () => {
                 <TableHead className="text-center">Paid</TableHead>
                 <TableHead className="text-center">Document Required</TableHead>
                 <TableHead>Accepted Documents</TableHead>
+                <TableHead>Policies</TableHead>
                 <TableHead className="text-center">Active</TableHead>
                 <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pagedLeaveTypes.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No leave types configured yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">No leave types configured yet.</TableCell></TableRow>
               ) : pagedLeaveTypes.map((lt) => (
                 <TableRow key={lt.id}>
                   <TableCell className="font-medium">{lt.name}</TableCell>
@@ -179,6 +207,19 @@ const LeaveTypesSetupPage = () => {
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {lt.carryForwardAllowed && (
+                        <Badge variant="outline" className="text-[10px]">Carries fwd · max {lt.maxCarryForwardDays}</Badge>
+                      )}
+                      {lt.weekendPolicy === "SATURDAY_HALF_DAY" && <Badge variant="outline" className="text-[10px]">Sat = half day</Badge>}
+                      {lt.weekendPolicy === "COUNT_FULL" && <Badge variant="outline" className="text-[10px]">Counts weekends</Badge>}
+                      {lt.countPublicHolidays && <Badge variant="outline" className="text-[10px]">Counts holidays</Badge>}
+                      {lt.carryForwardAllowed || lt.weekendPolicy !== "EXCLUDE" || lt.countPublicHolidays ? null : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-center">
                     <Switch checked={lt.active} onCheckedChange={() => toggleActive(lt.id)} />
                   </TableCell>
@@ -201,7 +242,7 @@ const LeaveTypesSetupPage = () => {
 
       <LeaveTypeFormModal
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={handleDialogOpenChange}
         isEditing={!!editing}
         value={form}
         onChange={setForm}

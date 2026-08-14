@@ -35,6 +35,8 @@ import SubjectPerformancePage from "./pages/admin/SubjectPerformancePage";
 import GradeComparisonPage from "./pages/admin/GradeComparisonPage";
 import SchoolFeesPage from "./pages/admin/SchoolFeesPage";
 import FeeStatementPage from "./pages/admin/FeeStatementPage";
+import FeeCollectionSummaryPage from "./pages/admin/FeeCollectionSummaryPage";
+import FeeArrearsPage from "./pages/admin/FeeArrearsPage";
 import SystemSetupsPage from "./pages/admin/SystemSetupsPage";
 import ManagementPage from "./pages/admin/ManagementPage";
 import LeaveTypesSetupPage from "./pages/admin/LeaveTypesSetupPage";
@@ -42,6 +44,7 @@ import FeeStructureSetupPage from "./pages/admin/FeeStructureSetupPage";
 import SchoolSetupPage from "./pages/admin/SchoolSetupPage";
 import SubjectsSetupPage from "./pages/admin/SubjectsSetupPage";
 import StaffRolesSetupPage from "./pages/admin/StaffRolesSetupPage";
+import HolidaysSetupPage from "./pages/admin/HolidaysSetupPage";
 import PayrollSetupPage from "./pages/admin/PayrollSetupPage";
 import GradingSetupPage from "./pages/admin/GradingSetupPage";
 import StaffSalariesPage from "./pages/admin/StaffSalariesPage";
@@ -61,6 +64,7 @@ import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import TeacherClasses from "./pages/teacher/TeacherClasses";
 import TeacherTimetable from "./pages/teacher/TeacherTimetable";
 import TeacherLeave from "./pages/teacher/TeacherLeave";
+import TeacherProfile from "./pages/teacher/TeacherProfile";
 import TeacherPayslips from "./pages/teacher/TeacherPayslips";
 import TeacherAttendance from "./pages/teacher/TeacherAttendance";
 import ParentAttendance from "./pages/parent/ParentAttendance";
@@ -97,6 +101,8 @@ function AppRoutes() {
         <Route path="timetable" element={<TimetablePage />} />
         <Route path="school-fees" element={<SchoolFeesPage />} />
         <Route path="fee-statement" element={<FeeStatementPage />} />
+        <Route path="fee-collection-summary" element={<FeeCollectionSummaryPage />} />
+        <Route path="fee-arrears" element={<FeeArrearsPage />} />
         <Route path="transport" element={<TransportPage />} />
         <Route path="communication" element={<CommunicationPage />} />
         <Route path="reports" element={<ReportsPage />} />
@@ -119,6 +125,7 @@ function AppRoutes() {
         <Route path="setup-school" element={<SchoolSetupPage />} />
         <Route path="setup-subjects" element={<SubjectsSetupPage />} />
         <Route path="setup-staff-roles" element={<StaffRolesSetupPage />} />
+        <Route path="setup-public-holidays" element={<HolidaysSetupPage />} />
         <Route path="setup-payroll" element={<PayrollSetupPage />} />
         <Route path="setup-grading" element={<GradingSetupPage />} />
         <Route path="setup-biometrics" element={<BiometricsSetupPage />} />
@@ -149,6 +156,7 @@ function AppRoutes() {
         <Route path="timetable" element={<TeacherTimetable />} />
         <Route path="leave" element={<TeacherLeave />} />
         <Route path="payslips" element={<TeacherPayslips />} />
+        <Route path="profile" element={<TeacherProfile />} />
         <Route path="communication" element={<ParentMessages />} />
         <Route path="term-reports" element={<TermReportsPage role="teacher" />} />
       </Route>

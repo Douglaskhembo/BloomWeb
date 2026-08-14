@@ -44,13 +44,24 @@ export const toPayment = (raw: any): Payment => ({
 /** A payment only counts toward what a student has paid once it's CONFIRMED — see [[fee_payment_manual_capture]] memory. */
 export const isConfirmed = (p: Payment) => (p.verificationStatus ?? "Confirmed") === "Confirmed";
 
+/** Resolves one active item's contribution to the annual total: a "Per Term" item sums its
+ *  three terms (falling back to the flat `amount` per term where no override is set); anything
+ *  else (Per Year/One-time) counts its flat `amount` once. Mirrors FeeService.resolveAmount(). */
+const annualAmount = (item: any) => {
+  if (item.term === "Per Term") {
+    const perTerm = (override: unknown) => Number(override != null ? override : item.amount) || 0;
+    return perTerm(item.term1Amount) + perTerm(item.term2Amount) + perTerm(item.term3Amount);
+  }
+  return Number(item.amount) || 0;
+};
+
 /** Term/year-blind fallback — sums every active FeeItem for a grade with no period scoping.
  *  Only meant for a grade that has never had an approved FeeStructure at all (see
  *  [[fee_payment_manual_capture]] memory); prefer `expectedFromCharges` everywhere else. */
 export const expectedForGrade = (grade: string, items: any[]) =>
   items
     .filter((it) => it.active && (!it.gradeLevels?.length || it.gradeLevels.some((g: any) => g.name === grade)))
-    .reduce((a, it) => a + (Number(it.amount) || 0), 0);
+    .reduce((a, it) => a + annualAmount(it), 0);
 
 /** Sums a student's persisted, eligibility-correct StudentFeeCharge rows (from FeeApi.getCurrentCharges). */
 export const expectedFromCharges = (admissionNumber: string, charges: any[]) =>

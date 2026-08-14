@@ -14,14 +14,24 @@ interface Props {
 
 const FeeItemFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSubmit, gradeOptions }: Props) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent>
+    <DialogContent className="max-h-[85vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{isEditing ? "Edit Fee Item" : "Add Fee Item"}</DialogTitle>
       </DialogHeader>
       <FeeItemForm value={value} onChange={onChange} gradeOptions={gradeOptions} />
       <DialogFooter>
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button onClick={onSubmit} disabled={!value.name || !value.amount}>{isEditing ? "Update" : "Add"} Fee Item</Button>
+        <Button
+          onClick={onSubmit}
+          disabled={
+            !value.name ||
+            (value.term === "Per Term"
+              ? !value.term1Amount || !value.term2Amount || !value.term3Amount
+              : !value.amount)
+          }
+        >
+          {isEditing ? "Update" : "Add"} Fee Item
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

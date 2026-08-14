@@ -8,8 +8,13 @@ export interface LeaveTypeFormValues {
   name: string;
   days: string;
   paid: boolean;
+  requiresApproval: boolean;
   requiresDocument: boolean;
   documentTypes: string[];
+  carryForwardAllowed: boolean;
+  maxCarryForwardDays: string;
+  weekendPolicy: "COUNT_FULL" | "SATURDAY_HALF_DAY" | "EXCLUDE";
+  countPublicHolidays: boolean;
 }
 
 interface LeaveTypeFormProps {
@@ -48,6 +53,68 @@ const LeaveTypeForm = ({ value, onChange, allDocumentTypes }: LeaveTypeFormProps
               <SelectItem value="no">No</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Checkbox
+          id="requiresApproval"
+          checked={value.requiresApproval}
+          onCheckedChange={(checked) => onChange({ ...value, requiresApproval: !!checked })}
+        />
+        <Label htmlFor="requiresApproval" className="font-medium cursor-pointer">
+          Requires approval before leave is granted
+        </Label>
+      </div>
+
+      <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
+        <div className="flex items-center gap-3">
+          <Checkbox
+            id="carryForward"
+            checked={value.carryForwardAllowed}
+            onCheckedChange={(checked) => onChange({ ...value, carryForwardAllowed: !!checked })}
+          />
+          <Label htmlFor="carryForward" className="font-medium cursor-pointer">
+            Allow unused days to carry forward to next year
+          </Label>
+        </div>
+        {value.carryForwardAllowed && (
+          <div className="space-y-2 ml-6 max-w-[200px]">
+            <Label className="text-sm text-muted-foreground">Max days that can carry forward</Label>
+            <Input
+              type="number"
+              min={0}
+              value={value.maxCarryForwardDays}
+              onChange={(e) => onChange({ ...value, maxCarryForwardDays: e.target.value })}
+              placeholder="e.g. 5"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
+        <Label className="font-medium">Day Counting</Label>
+        <div className="space-y-2">
+          <Label className="text-sm text-muted-foreground">Weekends</Label>
+          <Select
+            value={value.weekendPolicy || "EXCLUDE"}
+            onValueChange={(v) => onChange({ ...value, weekendPolicy: v as LeaveTypeFormValues["weekendPolicy"] })}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="EXCLUDE">Exclude both Saturday and Sunday</SelectItem>
+              <SelectItem value="SATURDAY_HALF_DAY">Saturday counts as half a day, Sunday excluded</SelectItem>
+              <SelectItem value="COUNT_FULL">Count Saturday and Sunday as full leave days</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-3">
+          <Checkbox
+            id="countPublicHolidays"
+            checked={value.countPublicHolidays}
+            onCheckedChange={(checked) => onChange({ ...value, countPublicHolidays: !!checked })}
+          />
+          <Label htmlFor="countPublicHolidays" className="cursor-pointer">Count public holidays as leave days</Label>
         </div>
       </div>
 

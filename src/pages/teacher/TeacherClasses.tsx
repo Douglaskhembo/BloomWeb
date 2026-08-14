@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { BookOpen, Users, ArrowLeft, Save } from "lucide-react";
+import { BookOpen, Users, ArrowLeft, Save, Plus } from "lucide-react";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
+import { StaffApi, AssessmentApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface GradeEntry {
   label: string;
@@ -35,131 +37,176 @@ const defaultGradingEntries: GradeEntry[] = [
   { label: "E", minScore: 0, maxScore: 29, points: 1, remark: "Very Poor" },
 ];
 
-const getGradeInfo = (score: string): { label: string; points: number; remark: string } | null => {
-  const num = parseFloat(score);
-  if (isNaN(num)) return null;
-  const entry = defaultGradingEntries.find((e) => num >= e.minScore && num <= e.maxScore);
+const getGradeInfo = (percentage: number | null): { label: string; points: number; remark: string } | null => {
+  if (percentage === null || isNaN(percentage)) return null;
+  const entry = defaultGradingEntries.find((e) => percentage >= e.minScore && percentage <= e.maxScore);
   return entry ? { label: entry.label, points: entry.points, remark: entry.remark } : null;
 };
 
-interface StudentScores {
-  exam: Record<string, string>; // term -> score
-  cat: Record<string, string>;  // term -> score
-}
-
-interface Student {
-  id: string;
-  name: string;
-  admNo: string;
-  scores: StudentScores;
-}
-
-interface ClassData {
-  grade: string;
-  students: Student[];
-  subject: string;
-  room: string;
-  avgScore: number;
-}
-
-const generateStudents = (grade: string, count: number): Student[] => {
-  const names = [
-    "Joy Kamau", "Brian Njuguna", "Alice Muthoni", "Peter Njoroge", "Grace Akinyi",
-    "David Wafula", "Faith Wanjiku", "Kevin Mwangi", "Mercy Chelimo", "Samuel Otieno",
-    "Lucy Wambui", "James Mutua", "Daniel Kipchoge", "Amina Hassan", "Ruth Kemunto",
-    "Michael Omondi", "Sarah Chebet", "John Karanja", "Mary Nyambura", "Joseph Kiprop",
-    "Esther Njeri", "Paul Ochieng", "Nancy Wangari", "George Kimani", "Christine Adhiambo",
-    "Robert Maina", "Catherine Nyokabi", "Dennis Korir", "Joyce Moraa", "Stephen Rotich",
-    "Anne Wanjiru", "Patrick Musyoka", "Helen Chelagat", "Victor Onyango", "Diana Mugure",
-  ];
-  return names.slice(0, count).map((name, i) => ({
-    id: `${grade.replace(/\s/g, "")}-${String(i + 1).padStart(3, "0")}`,
-    name,
-    admNo: `ADM-${String(1000 + i)}`,
-    scores: { exam: {}, cat: {} },
-  }));
-};
-
-const initialClasses: ClassData[] = [
-  { grade: "Grade 5A", students: generateStudents("Grade 5A", 35), subject: "Mathematics", room: "Room 12", avgScore: 0 },
-  { grade: "Grade 5B", students: generateStudents("Grade 5B", 33), subject: "Mathematics", room: "Room 14", avgScore: 0 },
-  { grade: "Grade 3A", students: generateStudents("Grade 3A", 30), subject: "Mathematics", room: "Room 8", avgScore: 0 },
-  { grade: "Grade 4A", students: generateStudents("Grade 4A", 32), subject: "Mathematics", room: "Room 10", avgScore: 0 },
-  { grade: "Grade 6A", students: generateStudents("Grade 6A", 28), subject: "Mathematics", room: "Room 16", avgScore: 0 },
-  { grade: "Grade 7A", students: generateStudents("Grade 7A", 28), subject: "Mathematics", room: "Room 18", avgScore: 0 },
-];
-
 const terms = ["Term 1", "Term 2", "Term 3"];
+const currentYear = new Date().getFullYear();
 
 const TeacherClasses = () => {
-  const [classes, setClasses] = useState<ClassData[]>(initialClasses);
-  const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
-  const [mode, setMode] = useState<"list" | "view" | "scores">("list");
-  const [scores, setScores] = useState<Record<string, string>>({});
-  const [selectedTerm, setSelectedTerm] = useState<string>("");
-  const [scoreType, setScoreType] = useState<"exam" | "cat">("exam");
-  const [viewTab, setViewTab] = useState<"exam" | "cat">("exam");
-  const [viewTerm, setViewTerm] = useState<string>("Term 1");
-  const [showScoreModal, setShowScoreModal] = useState(false);
-  const [modalClass, setModalClass] = useState<ClassData | null>(null);
-  const [modalType, setModalType] = useState<"exam" | "cat">("exam");
-  const [modalTerm, setModalTerm] = useState<string>("");
+  const { user } = useAuth();
+  const [staff, setStaff] = useState<any | null>(null);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [loadingClasses, setLoadingClasses] = useState(true);
 
-  const handleViewStudents = (cls: ClassData) => {
+  const [selectedClass, setSelectedClass] = useState<any | null>(null);
+  const [mode, setMode] = useState<"list" | "view" | "scores">("list");
+
+  const [assessments, setAssessments] = useState<any[]>([]);
+  const [selectedAssessment, setSelectedAssessment] = useState<any | null>(null);
+  const [rows, setRows] = useState<any[]>([]);
+  const [scores, setScores] = useState<Record<string, string>>({});
+  const [rowsLoading, setRowsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [showScoreModal, setShowScoreModal] = useState(false);
+  const [modalClass, setModalClass] = useState<any | null>(null);
+  const [modalAssessmentUuid, setModalAssessmentUuid] = useState<string>("__new__");
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<"CAT" | "EXAM">("CAT");
+  const [newTerm, setNewTerm] = useState("");
+  const [newYear, setNewYear] = useState(String(currentYear));
+  const [modalAssessments, setModalAssessments] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  const [studentsPage, setStudentsPage] = useState(1);
+  const [studentsPerPage, setStudentsPerPage] = useState(10);
+
+  useEffect(() => {
+    if (!user?.profileRef) return;
+    StaffApi.getByUuid(user.profileRef).then(setStaff).catch(() => setStaff(null));
+  }, [user?.profileRef]);
+
+  useEffect(() => {
+    if (!staff?.uuid) return;
+    setLoadingClasses(true);
+    AssessmentApi.getMyClasses(staff.uuid).then((data) => {
+      setClasses(data);
+      setLoadingClasses(false);
+    });
+  }, [staff?.uuid]);
+
+  const classKey = (c: any) => `${c.gradeLevelUuid}|${c.stream}|${c.subjectUuid}`;
+
+  const assessmentLabel = (a: any) => `${a.name} — ${a.term} ${a.year}`;
+
+  const openScoreModal = async (cls: any) => {
+    setModalClass(cls);
+    setModalAssessmentUuid("__new__");
+    setNewName("");
+    setNewType("CAT");
+    setNewTerm("");
+    setNewYear(String(currentYear));
+    setShowScoreModal(true);
+    if (staff?.uuid) {
+      const list = await AssessmentApi.getMine(staff.uuid, cls.gradeLevelUuid, cls.stream, cls.subjectUuid);
+      setModalAssessments(list);
+    }
+  };
+
+  const loadMarksFor = async (assessment: any) => {
+    setRowsLoading(true);
+    try {
+      const marks = await AssessmentApi.getMarks(assessment.uuid);
+      setRows(marks);
+      const initialScores: Record<string, string> = {};
+      marks.forEach((m: any) => { initialScores[m.studentUuid] = m.score === null || m.score === undefined ? "" : String(m.score); });
+      setScores(initialScores);
+    } finally {
+      setRowsLoading(false);
+    }
+  };
+
+  const handleModalProceed = async () => {
+    if (!modalClass) return;
+    setCreating(true);
+    try {
+      let assessment;
+      if (modalAssessmentUuid === "__new__") {
+        if (!newName.trim() || !newTerm) {
+          Swal.fire({ icon: "error", title: "Error", text: "Please provide a name and term for the new assessment" });
+          setCreating(false);
+          return;
+        }
+        assessment = await AssessmentApi.create({
+          name: newName.trim(),
+          type: newType,
+          term: newTerm,
+          year: Number(newYear),
+          subjectUuid: modalClass.subjectUuid,
+          gradeLevelUuid: modalClass.gradeLevelUuid,
+          stream: modalClass.stream,
+        });
+      } else {
+        assessment = modalAssessments.find((a) => a.uuid === modalAssessmentUuid);
+      }
+      setSelectedClass(modalClass);
+      setSelectedAssessment(assessment);
+      await loadMarksFor(assessment);
+      setShowScoreModal(false);
+      setMode("scores");
+      setStudentsPage(1);
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to prepare assessment") });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleViewStudents = async (cls: any) => {
     setSelectedClass(cls);
     setMode("view");
-    setViewTab("exam");
-    setViewTerm("Term 1");
+    setStudentsPage(1);
+    if (staff?.uuid) {
+      const list = await AssessmentApi.getMine(staff.uuid, cls.gradeLevelUuid, cls.stream, cls.subjectUuid);
+      setAssessments(list);
+      if (list.length > 0) {
+        setSelectedAssessment(list[0]);
+        await loadMarksFor(list[0]);
+      } else {
+        setSelectedAssessment(null);
+        setRows([]);
+      }
+    }
   };
 
-  const handleEnterScores = (cls: ClassData) => {
-    setModalClass(cls);
-    setModalType("exam");
-    setModalTerm("");
-    setShowScoreModal(true);
+  const handleSelectViewAssessment = async (uuid: string) => {
+    const a = assessments.find((x) => x.uuid === uuid);
+    if (!a) return;
+    setSelectedAssessment(a);
+    await loadMarksFor(a);
   };
 
-  const handleModalProceed = () => {
-    if (!modalClass || !modalTerm) return;
-    setSelectedClass(modalClass);
-    setScoreType(modalType);
-    setSelectedTerm(modalTerm);
-    const initial: Record<string, string> = {};
-    modalClass.students.forEach((s) => {
-      initial[s.id] = s.scores[modalType][modalTerm] || "";
-    });
-    setScores(initial);
-    setShowScoreModal(false);
-    setMode("scores");
-  };
-
-
-  const handleSaveScores = () => {
-    if (!selectedClass || !selectedTerm) return;
-    setClasses((prev) =>
-      prev.map((cls) =>
-        cls.grade === selectedClass.grade
-          ? {
-              ...cls,
-              students: cls.students.map((s) => ({
-                ...s,
-                scores: {
-                  ...s.scores,
-                  [scoreType]: { ...s.scores[scoreType], [selectedTerm]: scores[s.id] || "" },
-                },
-              })),
-            }
-          : cls
-      )
-    );
-    Swal.fire({ icon: "success", title: "Scores saved", text: `${scoreType === "exam" ? "Exam" : "CAT"} scores for ${selectedClass.grade} — ${selectedTerm} saved.`, showConfirmButton: true });
-    setMode("list");
+  const handleSaveScores = async () => {
+    if (!selectedAssessment) return;
+    setSaving(true);
+    try {
+      const entries = rows.map((r: any) => ({
+        studentUuid: r.studentUuid,
+        score: scores[r.studentUuid] === "" || scores[r.studentUuid] === undefined ? null : Number(scores[r.studentUuid]),
+      }));
+      await AssessmentApi.saveMarks(selectedAssessment.uuid, entries);
+      Swal.fire({ icon: "success", title: "Scores saved", text: `${selectedAssessment.name} scores for ${selectedClass.grade} ${selectedClass.stream} saved.` });
+      setMode("list");
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(err, "Failed to save scores") });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleBack = () => {
     setMode("list");
     setSelectedClass(null);
+    setSelectedAssessment(null);
+    setRows([]);
   };
+
+  const totalStudentPages = Math.ceil(rows.length / studentsPerPage);
+  const pagedRows = rows.slice((studentsPage - 1) * studentsPerPage, studentsPage * studentsPerPage);
 
   // Class list view
   if (mode === "list") {
@@ -167,65 +214,103 @@ const TeacherClasses = () => {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Classes</h1>
-          <p className="text-muted-foreground">All classes assigned to you this term</p>
+          <p className="text-muted-foreground">All classes and subjects assigned to you on the timetable</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {classes.map((cls, i) => (
-            <Card key={i} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-5 space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <BookOpen className="w-4 h-4 text-primary" />
+        {loadingClasses ? (
+          <p className="text-sm text-muted-foreground text-center py-8">Loading your classes...</p>
+        ) : classes.length === 0 ? (
+          <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">
+            You have no timetabled classes yet — ask an admin to assign you subjects on the timetable.
+          </CardContent></Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {classes.map((cls) => (
+              <Card key={classKey(cls)} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-5 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <BookOpen className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm">{cls.grade} {cls.stream}</p>
+                        <p className="text-xs text-muted-foreground">{cls.subjectName}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold text-sm">{cls.grade}</p>
-                      <p className="text-xs text-muted-foreground">{cls.subject} · {cls.room}</p>
-                    </div>
+                    <Badge variant="outline" className="text-[10px]">{cls.studentCount} students</Badge>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">{cls.students.length} students</Badge>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="flex-1 text-xs" onClick={() => handleViewStudents(cls)}>
-                    <Users className="w-3.5 h-3.5 mr-1" /> View Students
-                  </Button>
-                  <Button size="sm" className="flex-1 text-xs" onClick={() => handleEnterScores(cls)}>
-                    Enter Scores
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1 text-xs" onClick={() => handleViewStudents(cls)}>
+                      <Users className="w-3.5 h-3.5 mr-1" /> View Students
+                    </Button>
+                    <Button size="sm" className="flex-1 text-xs" onClick={() => openScoreModal(cls)}>
+                      Enter Scores
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {/* Score Entry Modal */}
         <Dialog open={showScoreModal} onOpenChange={setShowScoreModal}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Enter Scores — {modalClass?.grade}</DialogTitle>
+              <DialogTitle>Enter Scores — {modalClass?.grade} {modalClass?.stream}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label>Assessment Type</Label>
-                <Select value={modalType} onValueChange={(v) => setModalType(v as "exam" | "cat")}>
+                <Label>Assessment</Label>
+                <Select value={modalAssessmentUuid} onValueChange={setModalAssessmentUuid}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="exam">Exam</SelectItem>
-                    <SelectItem value="cat">CAT</SelectItem>
+                    <SelectItem value="__new__">
+                      <span className="flex items-center gap-1"><Plus className="w-3 h-3" /> New Assessment</span>
+                    </SelectItem>
+                    {modalAssessments.map((a) => (
+                      <SelectItem key={a.uuid} value={a.uuid}>{assessmentLabel(a)} ({a.gradedCount}/{a.studentCount} graded)</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Term</Label>
-                <Select value={modalTerm} onValueChange={setModalTerm}>
-                  <SelectTrigger><SelectValue placeholder="Select Term" /></SelectTrigger>
-                  <SelectContent>
-                    {terms.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button className="w-full" disabled={!modalTerm} onClick={handleModalProceed}>
-                Proceed
+
+              {modalAssessmentUuid === "__new__" && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Name</Label>
+                    <Input placeholder="e.g. CAT 1, Mid Term Exam" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Type</Label>
+                      <Select value={newType} onValueChange={(v) => setNewType(v as "CAT" | "EXAM")}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CAT">CAT</SelectItem>
+                          <SelectItem value="EXAM">Exam</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Term</Label>
+                      <Select value={newTerm} onValueChange={setNewTerm}>
+                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                        <SelectContent>
+                          {terms.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Year</Label>
+                    <Input type="number" value={newYear} onChange={(e) => setNewYear(e.target.value)} />
+                  </div>
+                </>
+              )}
+
+              <Button className="w-full" disabled={creating} onClick={handleModalProceed}>
+                {creating ? "Preparing..." : "Proceed"}
               </Button>
             </div>
           </DialogContent>
@@ -234,9 +319,8 @@ const TeacherClasses = () => {
     );
   }
 
-  // View Students with Exam/CAT tabs
+  // View Students
   if (mode === "view" && selectedClass) {
-    const currentClass = classes.find((c) => c.grade === selectedClass.grade) || selectedClass;
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -244,42 +328,85 @@ const TeacherClasses = () => {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{currentClass.grade} — {currentClass.subject}</h1>
-            <p className="text-muted-foreground">{currentClass.students.length} students · {currentClass.room}</p>
+            <h1 className="text-2xl font-bold tracking-tight">{selectedClass.grade} {selectedClass.stream} — {selectedClass.subjectName}</h1>
+            <p className="text-muted-foreground">{selectedClass.studentCount} students</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <Select value={viewTerm} onValueChange={setViewTerm}>
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {terms.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        {assessments.length === 0 ? (
+          <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">
+            No assessments have been created for this class yet.
+            <div className="mt-3"><Button size="sm" onClick={() => openScoreModal(selectedClass)}>Create Assessment</Button></div>
+          </CardContent></Card>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select value={selectedAssessment?.uuid} onValueChange={handleSelectViewAssessment}>
+                <SelectTrigger className="w-[260px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {assessments.map((a) => <SelectItem key={a.uuid} value={a.uuid}>{assessmentLabel(a)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <Tabs value={viewTab} onValueChange={(v) => setViewTab(v as "exam" | "cat")}>
-          <TabsList>
-            <TabsTrigger value="exam">Exam</TabsTrigger>
-            <TabsTrigger value="cat">CAT</TabsTrigger>
-          </TabsList>
-          <TabsContent value="exam">
-            <StudentViewTable students={currentClass.students} term={viewTerm} type="exam" />
-          </TabsContent>
-          <TabsContent value="cat">
-            <StudentViewTable students={currentClass.students} term={viewTerm} type="cat" />
-          </TabsContent>
-        </Tabs>
+            <Card>
+              <CardContent className="pt-4">
+                {rowsLoading ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">#</TableHead>
+                        <TableHead>Adm No</TableHead>
+                        <TableHead>Student Name</TableHead>
+                        <TableHead className="text-right">Score</TableHead>
+                        <TableHead className="text-center">Grade</TableHead>
+                        <TableHead className="text-center">Points</TableHead>
+                        <TableHead>Remark</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pagedRows.map((r, i) => {
+                        const pct = r.score === null || r.score === undefined ? null : (r.score / (selectedAssessment?.maxScore || 100)) * 100;
+                        const gradeInfo = getGradeInfo(pct);
+                        return (
+                          <TableRow key={r.studentUuid}>
+                            <TableCell className="text-muted-foreground text-xs">{(studentsPage - 1) * studentsPerPage + i + 1}</TableCell>
+                            <TableCell className="font-mono text-xs">{r.admissionNumber}</TableCell>
+                            <TableCell className="font-medium text-sm">{r.studentName}</TableCell>
+                            <TableCell className="text-right">
+                              {r.score !== null && r.score !== undefined ? (
+                                <Badge variant={pct !== null && pct >= 50 ? "default" : "destructive"} className="text-[10px]">{r.score}/{selectedAssessment?.maxScore}</Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
+                            <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+                <Pagination currentPage={studentsPage} totalPages={totalStudentPages} onPageChange={setStudentsPage}
+                  itemsPerPage={studentsPerPage} onItemsPerPageChange={v => { setStudentsPerPage(v); setStudentsPage(1); }} />
+              </CardContent>
+            </Card>
 
-        <div className="flex justify-end">
-          <Button onClick={() => handleEnterScores(currentClass)}>Enter Scores</Button>
-        </div>
+            <div className="flex justify-end">
+              <Button onClick={() => openScoreModal(selectedClass)}>Enter / Edit Scores</Button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
 
-  // Enter Scores - direct table (term/type already selected via modal)
-  if (mode === "scores" && selectedClass) {
+  // Enter Scores
+  if (mode === "scores" && selectedClass && selectedAssessment) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -288,20 +415,73 @@ const TeacherClasses = () => {
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Enter {scoreType === "exam" ? "Exam" : "CAT"} Scores — {selectedClass.grade}</h1>
-              <p className="text-muted-foreground">{selectedClass.subject} · {selectedTerm}</p>
+              <h1 className="text-2xl font-bold tracking-tight">{selectedAssessment.name} — {selectedClass.grade} {selectedClass.stream}</h1>
+              <p className="text-muted-foreground">{selectedClass.subjectName} · {selectedAssessment.term} {selectedAssessment.year} · Max {selectedAssessment.maxScore}</p>
             </div>
           </div>
-          <Button onClick={handleSaveScores}>
-            <Save className="w-4 h-4 mr-1" /> Save Scores
+          <Button onClick={handleSaveScores} disabled={saving}>
+            <Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Scores"}
           </Button>
         </div>
 
-        <ScoreEntryTable students={selectedClass.students} scores={scores} setScores={setScores} />
+        {rowsLoading ? (
+          <p className="text-sm text-muted-foreground text-center py-8">Loading roster...</p>
+        ) : (
+          <Card>
+            <CardContent className="pt-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12">#</TableHead>
+                    <TableHead>Adm No</TableHead>
+                    <TableHead>Student Name</TableHead>
+                    <TableHead className="w-28 text-right">Score (/{selectedAssessment.maxScore})</TableHead>
+                    <TableHead className="text-center">Grade</TableHead>
+                    <TableHead className="text-center">Points</TableHead>
+                    <TableHead>Remark</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => {
+                    const raw = scores[r.studentUuid] ?? "";
+                    const pct = raw === "" ? null : (parseFloat(raw) / selectedAssessment.maxScore) * 100;
+                    const gradeInfo = getGradeInfo(pct);
+                    return (
+                      <TableRow key={r.studentUuid}>
+                        <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                        <TableCell className="font-mono text-xs">{r.admissionNumber}</TableCell>
+                        <TableCell className="font-medium text-sm">{r.studentName}</TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            min="0"
+                            max={selectedAssessment.maxScore}
+                            className="w-20 ml-auto text-right h-8 text-sm"
+                            placeholder="—"
+                            value={raw}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "" || (parseFloat(val) >= 0 && parseFloat(val) <= selectedAssessment.maxScore)) {
+                                setScores((prev) => ({ ...prev, [r.studentUuid]: val }));
+                              }
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
+                        <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex justify-end">
-          <Button onClick={handleSaveScores}>
-            <Save className="w-4 h-4 mr-1" /> Save Scores
+          <Button onClick={handleSaveScores} disabled={saving}>
+            <Save className="w-4 h-4 mr-1" /> {saving ? "Saving..." : "Save Scores"}
           </Button>
         </div>
       </div>
@@ -310,110 +490,5 @@ const TeacherClasses = () => {
 
   return null;
 };
-
-// Sub-component: View students table with grade info
-const StudentViewTable = ({ students, term, type }: { students: Student[]; term: string; type: "exam" | "cat" }) => {
-  const [studentsPage, setStudentsPage] = useState(1);
-  const [studentsPerPage, setStudentsPerPage] = useState(10);
-  const totalStudentPages = Math.ceil(students.length / studentsPerPage);
-  const pagedStudents = students.slice((studentsPage - 1) * studentsPerPage, studentsPage * studentsPerPage);
-
-  return (
-    <Card>
-      <CardContent className="pt-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">#</TableHead>
-              <TableHead>Adm No</TableHead>
-              <TableHead>Student Name</TableHead>
-              <TableHead className="text-right">Score</TableHead>
-              <TableHead className="text-center">Grade</TableHead>
-              <TableHead className="text-center">Points</TableHead>
-              <TableHead>Remark</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {pagedStudents.map((s, i) => {
-              const score = s.scores[type][term] || "";
-              const gradeInfo = getGradeInfo(score);
-              return (
-                <TableRow key={s.id}>
-                  <TableCell className="text-muted-foreground text-xs">{(studentsPage - 1) * studentsPerPage + i + 1}</TableCell>
-                  <TableCell className="font-mono text-xs">{s.admNo}</TableCell>
-                  <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                  <TableCell className="text-right">
-                    {score ? (
-                      <Badge variant={parseFloat(score) >= 50 ? "default" : "destructive"} className="text-[10px]">{score}%</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
-                  <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-        <Pagination currentPage={studentsPage} totalPages={totalStudentPages} onPageChange={setStudentsPage}
-          itemsPerPage={studentsPerPage} onItemsPerPageChange={v => { setStudentsPerPage(v); setStudentsPage(1); }} />
-      </CardContent>
-    </Card>
-  );
-};
-
-// Sub-component: Score entry table with auto grade/points/remark
-const ScoreEntryTable = ({ students, scores, setScores }: { students: Student[]; scores: Record<string, string>; setScores: React.Dispatch<React.SetStateAction<Record<string, string>>> }) => (
-  <Card>
-    <CardContent className="pt-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">#</TableHead>
-            <TableHead>Adm No</TableHead>
-            <TableHead>Student Name</TableHead>
-            <TableHead className="w-28 text-right">Score (%)</TableHead>
-            <TableHead className="text-center">Grade</TableHead>
-            <TableHead className="text-center">Points</TableHead>
-            <TableHead>Remark</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {students.map((s, i) => {
-            const gradeInfo = getGradeInfo(scores[s.id] || "");
-            return (
-              <TableRow key={s.id}>
-                <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
-                <TableCell className="font-mono text-xs">{s.admNo}</TableCell>
-                <TableCell className="font-medium text-sm">{s.name}</TableCell>
-                <TableCell className="text-right">
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    className="w-20 ml-auto text-right h-8 text-sm"
-                    placeholder="—"
-                    value={scores[s.id] || ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === "" || (parseFloat(val) >= 0 && parseFloat(val) <= 100)) {
-                        setScores((prev) => ({ ...prev, [s.id]: val }));
-                      }
-                    }}
-                  />
-                </TableCell>
-                <TableCell className="text-center text-sm font-semibold">{gradeInfo?.label || "—"}</TableCell>
-                <TableCell className="text-center text-sm">{gradeInfo?.points || "—"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{gradeInfo?.remark || "—"}</TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </CardContent>
-  </Card>
-);
 
 export default TeacherClasses;

@@ -40,6 +40,8 @@ const adminNavItems: NavItem[] = [
       { to: "/admin/finance", icon: DollarSign, label: "Overview" },
       { to: "/admin/school-fees", icon: Users, label: "School Fees" },
       { to: "/admin/fee-statement", icon: BookOpen, label: "Fee Statement" },
+      { to: "/admin/fee-collection-summary", icon: BarChart3, label: "Fee Collection Summary" },
+      { to: "/admin/fee-arrears", icon: ClipboardList, label: "Fee Arrears" },
       { to: "/admin/suppliers", icon: Store, label: "Suppliers" },
       { to: "/admin/bills", icon: Receipt, label: "Bills & Expenses" },
     ],
@@ -102,6 +104,7 @@ const teacherNavItems: NavItem[] = [
   { to: "/teacher/leave", icon: CalendarDays, label: "Leave" },
   { to: "/teacher/payslips", icon: CreditCard, label: "Payslips" },
   { to: "/teacher/communication", icon: MessageSquare, label: "Messages" },
+  { to: "/teacher/profile", icon: UserCircle, label: "My Profile" },
 ];
 
 interface AppSidebarProps {

@@ -45,11 +45,13 @@ const leaveAPI   = applyAuthInterceptor(axios.create({ baseURL: `${BASE}`,      
 const feesAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/fees`,       headers: { 'Content-Type': 'application/json' } }));
 const subjectAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/subjects`,   headers: { 'Content-Type': 'application/json' } }));
 const staffRoleAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/staff-roles`, headers: { 'Content-Type': 'application/json' } }));
+const holidayAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/holidays`, headers: { 'Content-Type': 'application/json' } }));
 const supplierAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/suppliers`, headers: { 'Content-Type': 'application/json' } }));
 const billsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/bills`, headers: { 'Content-Type': 'application/json' } }));
 const paymentsAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payments`, headers: { 'Content-Type': 'application/json' } }));
 const bioStaffAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/biometrics/staff`, headers: { 'Content-Type': 'application/json' } }));
 const bioStudentAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/biometrics/students`, headers: { 'Content-Type': 'application/json' } }));
+const bioCaptureAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/biometrics`, headers: { 'Content-Type': 'application/json' } }));
 const deviceAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/devices`, headers: { 'Content-Type': 'application/json' } }));
 const classTeacherAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/class-teachers`, headers: { 'Content-Type': 'application/json' } }));
 const attendanceReportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/reports`, headers: { 'Content-Type': 'application/json' } }));
@@ -57,6 +59,8 @@ const payrollAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payroll
 const commAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/communication`, headers: { 'Content-Type': 'application/json' } }));
 const timetablePeriodAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/periods`, headers: { 'Content-Type': 'application/json' } }));
 const timetableEntryAPI  = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/entries`, headers: { 'Content-Type': 'application/json' } }));
+const assessmentAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/assessments`, headers: { 'Content-Type': 'application/json' } }));
+const termReportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/term-reports`, headers: { 'Content-Type': 'application/json' } }));
 
 export const authAPI = {
   login: (data: { username: string; password: string }) => _authAPI.post('/login', data),
@@ -192,6 +196,14 @@ export const StaffApi = {
   },
   delete: async (uuid: string): Promise<void> => {
     await staffAPI.delete(`/${uuid}`);
+  },
+  getMyProfile: async (): Promise<any> => {
+    const res = await staffAPI.get('/me');
+    return unwrap(res);
+  },
+  updateMyProfile: async (data: any): Promise<any> => {
+    const res = await staffAPI.patch('/me', data);
+    return unwrap(res);
   },
 };
 
@@ -398,11 +410,34 @@ export const LeaveApi = {
   deleteRequest: async (id: number): Promise<void> => {
     await leaveAPI.delete(`/leave-requests/${id}`);
   },
-  getBalances: async (staffId: string): Promise<any[]> => {
+  getBalances: async (staffId: string, year?: number): Promise<any[]> => {
     try {
-      const res = await leaveAPI.get('/leave-requests/balance', { params: { staffId } });
+      const res = await leaveAPI.get('/leave-requests/balance', { params: year ? { staffId, year } : { staffId } });
       return unwrapList(res);
     } catch { return []; }
+  },
+};
+
+export const HolidayApi = {
+  getAll: async (): Promise<any[]> => {
+    try {
+      const res = await holidayAPI.get('');
+      return unwrapList(res);
+    } catch { return []; }
+  },
+  create: async (data: any): Promise<any> => {
+    const res = await holidayAPI.post('', data);
+    return unwrap(res);
+  },
+  update: async (id: number, data: any): Promise<any> => {
+    const res = await holidayAPI.put(`/${id}`, data);
+    return unwrap(res);
+  },
+  toggle: async (id: number): Promise<void> => {
+    await holidayAPI.patch(`/${id}/toggle`);
+  },
+  delete: async (id: number): Promise<void> => {
+    await holidayAPI.delete(`/${id}`);
   },
 };
 
@@ -492,13 +527,22 @@ export const FeeApi = {
     const res = await feesAPI.post('/structures/submit', data);
     return unwrap(res);
   },
-  approveStructure: async (uuid: string): Promise<any> => {
-    const res = await feesAPI.patch(`/structures/${uuid}/approve`);
+  approveStructure: async (uuid: string, note: string): Promise<any> => {
+    const res = await feesAPI.patch(`/structures/${uuid}/approve`, { reason: note });
     return unwrap(res);
   },
   rejectStructure: async (uuid: string, reason: string): Promise<any> => {
     const res = await feesAPI.patch(`/structures/${uuid}/reject`, { reason });
     return unwrap(res);
+  },
+  getCollectionSummary: async (academicYear: number, term: string): Promise<any[]> => {
+    try { return unwrapList(await feesAPI.get('/reports/collection-summary', { params: { academicYear, term } })); } catch { return []; }
+  },
+  getArrears: async (params: { academicYear?: number; term: string; grade?: string; stream?: string }): Promise<any[]> => {
+    try { return unwrapList(await feesAPI.get('/reports/arrears', { params })); } catch { return []; }
+  },
+  getCollectionTrend: async (months = 6): Promise<any[]> => {
+    try { return unwrapList(await feesAPI.get('/reports/collection-trend', { params: { months } })); } catch { return []; }
   },
 };
 
@@ -632,8 +676,6 @@ export const BiometricsApi = {
     },
     updateStatus: async (bioUuid: string, status: string): Promise<any> =>
       unwrap(await bioStaffAPI.patch(`/${bioUuid}/status`, null, { params: { status } })),
-    capture: async (bioDataUuid: string, deviceId: string, remarks?: string): Promise<any> =>
-      unwrap(await bioStaffAPI.post('/capture', { bioDataUuid, deviceId, remarks })),
     getAttendance: async (staffUuid: string, from: string, to: string): Promise<any[]> => {
       try { return unwrapList(await bioStaffAPI.get(`/${staffUuid}/attendance`, { params: { from, to } })); } catch { return []; }
     },
@@ -648,8 +690,6 @@ export const BiometricsApi = {
     },
     updateStatus: async (bioUuid: string, status: string): Promise<any> =>
       unwrap(await bioStudentAPI.patch(`/${bioUuid}/status`, null, { params: { status } })),
-    capture: async (bioDataUuid: string, deviceId: string, remarks?: string): Promise<any> =>
-      unwrap(await bioStudentAPI.post('/capture', { bioDataUuid, deviceId, remarks })),
     getAttendance: async (studentUuid: string, from: string, to: string): Promise<any[]> => {
       try { return unwrapList(await bioStudentAPI.get(`/${studentUuid}/attendance`, { params: { from, to } })); } catch { return []; }
     },
@@ -657,6 +697,10 @@ export const BiometricsApi = {
       try { return unwrapList(await bioStudentAPI.get('/attendance/daily', { params: date ? { date } : undefined })); } catch { return []; }
     },
   },
+  /** Identifies a scanned fingerprint image against every enrolled student/staff and records
+   *  the resulting attendance event — server-side 1:N match, no identity claim from the caller. */
+  identify: async (params: { image: string; ownerType?: 'STUDENT' | 'STAFF'; deviceId: string; remarks?: string }): Promise<any> =>
+    unwrap(await bioCaptureAPI.post('/capture', params)),
 };
 
 export const DeviceApi = {
@@ -698,6 +742,9 @@ export const AttendanceReportApi = {
   getMyChildren: async (params: { parentUserUuid: string; from: string; to: string }): Promise<any[]> => {
     try { return unwrapList(await attendanceReportAPI.get('/my-children', { params })); } catch { return []; }
   },
+  getSummary: async (params: { from: string; to: string; grade?: string; stream?: string }): Promise<any[]> => {
+    try { return unwrapList(await attendanceReportAPI.get('/summary', { params })); } catch { return []; }
+  },
 };
 
 export const TimetableApi = {
@@ -721,6 +768,43 @@ export const TimetableApi = {
   },
   assign: async (data: any): Promise<any> => unwrap(await timetableEntryAPI.post('', data)),
   unassign: async (uuid: string): Promise<void> => { await timetableEntryAPI.delete(`/${uuid}`); },
+};
+
+export const AssessmentApi = {
+  getMyClasses: async (teacherUuid: string): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get('/my-classes', { params: { teacherUuid } })); } catch { return []; }
+  },
+  getRoster: async (gradeLevelUuid: string, stream: string): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get('/roster', { params: { gradeLevelUuid, stream } })); } catch { return []; }
+  },
+  getMine: async (teacherUuid: string, gradeLevelUuid: string, stream: string, subjectUuid: string): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get('', { params: { teacherUuid, gradeLevelUuid, stream, subjectUuid } })); } catch { return []; }
+  },
+  create: async (data: any): Promise<any> => unwrap(await assessmentAPI.post('', data)),
+  getMarks: async (assessmentUuid: string): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get(`/${assessmentUuid}/marks`)); } catch { return []; }
+  },
+  saveMarks: async (assessmentUuid: string, entries: { studentUuid: string; score: number | null }[]): Promise<void> => {
+    await assessmentAPI.put(`/${assessmentUuid}/marks`, { entries });
+  },
+  delete: async (assessmentUuid: string): Promise<void> => { await assessmentAPI.delete(`/${assessmentUuid}`); },
+};
+
+export const TermReportApi = {
+  getAll: async (params: { gradeLevelUuid?: string; stream?: string; term: string; year: number; search?: string }): Promise<any[]> => {
+    try { return unwrapList(await termReportAPI.get('', { params })); } catch { return []; }
+  },
+  getMyClass: async (params: { teacherUuid: string; term: string; year: number }): Promise<any[]> => {
+    try { return unwrapList(await termReportAPI.get('/my-class', { params })); } catch { return []; }
+  },
+  getMyChildren: async (params: { parentUserUuid: string; term: string; year: number }): Promise<any[]> => {
+    try { return unwrapList(await termReportAPI.get('/my-children', { params })); } catch { return []; }
+  },
+  getDetail: async (studentUuid: string, term: string, year: number): Promise<any> =>
+    unwrap(await termReportAPI.get(`/${studentUuid}/detail`, { params: { term, year } })),
+  publish: async (data: { gradeLevelUuid: string; stream: string; term: string; year: number }): Promise<void> => {
+    await termReportAPI.post('/publish', data);
+  },
 };
 
 export const PayrollApi = {
