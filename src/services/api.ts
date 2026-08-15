@@ -512,9 +512,10 @@ export const FeeApi = {
   },
 
   // Fee payments
-  getPayments: async (studentId?: string): Promise<any[]> => {
+  getPayments: async (params?: string | { studentId?: string; admissionUuid?: string }): Promise<any[]> => {
     try {
-      const res = await feesAPI.get('/payments', { params: studentId ? { studentId } : {} });
+      const query = typeof params === "string" ? (params ? { studentId: params } : {}) : (params ?? {});
+      const res = await feesAPI.get('/payments', { params: query });
       return unwrapList(res);
     } catch { return []; }
   },

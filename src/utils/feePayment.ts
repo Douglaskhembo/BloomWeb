@@ -26,6 +26,8 @@ const VERIFICATION_FROM_BACKEND: Record<string, NonNullable<Payment["verificatio
 export const toPayment = (raw: any): Payment => ({
   id: String(raw.id ?? raw.uuid),
   studentId: raw.studentId,
+  admissionUuid: raw.admissionUuid ?? undefined,
+  studentName: raw.studentName ?? undefined,
   amount: Number(raw.amount) || 0,
   method: METHOD_FROM_BACKEND[raw.method] ?? "Cash",
   reference: raw.reference,

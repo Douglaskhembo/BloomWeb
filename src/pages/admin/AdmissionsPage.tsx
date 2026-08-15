@@ -8,12 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Plus, FileText, Users, CheckCircle, Clock, ArrowRight, Upload, X, File, ArrowLeft } from "lucide-react";
+import { Plus, FileText, Users, CheckCircle, Clock, ArrowRight, Upload, X, File, ArrowLeft, Eye, Banknote } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { useStudentContext, STAGE_LABELS } from "@/context/StudentContext";
-import { SchoolApi } from "@/services/api";
+import { useStudentContext, STAGE_LABELS, Application } from "@/context/StudentContext";
+import { SchoolApi, FeeApi } from "@/services/api";
 import Swal from "sweetalert2";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import AdmissionViewModal from "@/components/modal/AdmissionViewModal";
+import AdmissionPaymentModal from "@/components/modal/AdmissionPaymentModal";
 
 const STAGE_BADGE: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   APPLICATION_REVIEW: "secondary",
@@ -37,9 +39,30 @@ const AdmissionsPage = () => {
   const { applications, addApplication, updateApplicationStage, getNextStage, loadingApplications } = useStudentContext();
   const [showForm, setShowForm] = useState(false);
   const [step, setStep] = useState(1);
+  const [viewingApp, setViewingApp] = useState<Application | null>(null);
+  const [payingApp, setPayingApp] = useState<Application | null>(null);
+  const [confirmedPaymentUuids, setConfirmedPaymentUuids] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [grades, setGrades] = useState<{ uuid: string; name: string; displayOrder: number; streamNames: string[] }[]>([]);
+
+  const feePaymentStageUuids = applications.filter(a => a.stage === "FEE_PAYMENT").map(a => a.uuid).join(",");
+
+  useEffect(() => {
+    const uuids = feePaymentStageUuids ? feePaymentStageUuids.split(",") : [];
+    if (uuids.length === 0) return;
+    let cancelled = false;
+    Promise.all(uuids.map(uuid =>
+      FeeApi.getPayments({ admissionUuid: uuid }).then(rows => ({
+        uuid,
+        confirmed: Array.isArray(rows) && rows.some((r: any) => r.verificationStatus === "CONFIRMED"),
+      }))
+    )).then(results => {
+      if (cancelled) return;
+      setConfirmedPaymentUuids(new Set(results.filter(r => r.confirmed).map(r => r.uuid)));
+    });
+    return () => { cancelled = true; };
+  }, [feePaymentStageUuids]);
 
   useEffect(() => {
     SchoolApi.getGradeLevels().then((data) => {
@@ -383,19 +406,41 @@ const AdmissionsPage = () => {
                       <div className="space-y-3">
                         {filtered.map(app => (
                           <div key={app.id} className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/50 transition-colors">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <button
+                              type="button"
+                              className="flex items-center gap-3 text-left flex-1 min-w-0"
+                              onClick={() => setViewingApp(app)}
+                            >
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                                 <span className="text-sm font-bold text-primary">{app.firstName?.charAt(0) ?? "?"}</span>
                               </div>
-                              <div>
-                                <p className="font-medium text-sm">{app.firstName} {app.lastName}</p>
-                                <p className="text-xs text-muted-foreground">{app.grade} · {app.parentPhone}</p>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">{app.firstName} {app.lastName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{app.grade} · {app.parentPhone}</p>
                               </div>
-                            </div>
+                            </button>
                             <div className="flex items-center gap-3">
                               <span className="text-xs text-muted-foreground">{app.createdAt?.split("T")[0]}</span>
                               <Badge variant={STAGE_BADGE[app.stage] ?? "outline"} className="text-[10px]">{STAGE_LABELS[app.stage] ?? app.stage}</Badge>
-                              <Button size="sm" onClick={() => handleAdvanceStage(app.uuid, app.stage)}>
+                              {app.stage === "FEE_PAYMENT" && (
+                                <Badge variant={confirmedPaymentUuids.has(app.uuid) ? "default" : "destructive"} className="text-[10px]">
+                                  {confirmedPaymentUuids.has(app.uuid) ? "Payment Confirmed" : "Payment Not Received"}
+                                </Badge>
+                              )}
+                              <Button size="sm" variant="outline" onClick={() => setViewingApp(app)}>
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              {app.stage === "FEE_PAYMENT" && (
+                                <Button size="sm" variant="outline" onClick={() => setPayingApp(app)}>
+                                  <Banknote className="w-4 h-4 mr-1" /> Record Payment
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                onClick={() => handleAdvanceStage(app.uuid, app.stage)}
+                                disabled={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid)}
+                                title={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid) ? "Record and confirm at least one payment before enrolling" : undefined}
+                              >
                                 {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
                                 <ArrowRight className="w-4 h-4 ml-1" />
                               </Button>
@@ -411,6 +456,18 @@ const AdmissionsPage = () => {
           )}
         </CardContent>
       </Card>
+
+      <AdmissionViewModal open={!!viewingApp} onOpenChange={(open) => !open && setViewingApp(null)} application={viewingApp} />
+      <AdmissionPaymentModal
+        open={!!payingApp}
+        onOpenChange={(open) => !open && setPayingApp(null)}
+        application={payingApp}
+        onRecorded={(payment) => {
+          if (payingApp && payment.verificationStatus === "CONFIRMED") {
+            setConfirmedPaymentUuids(prev => new Set(prev).add(payingApp.uuid));
+          }
+        }}
+      />
     </div>
   );
 };

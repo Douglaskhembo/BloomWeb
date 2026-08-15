@@ -19,6 +19,9 @@ export type VerificationStatus = "Confirmed" | "Pending Verification" | "Rejecte
 export interface Payment {
   id: string;
   studentId: string;
+  /** Set instead of studentId for a payment captured pre-enrollment, against an Admission. */
+  admissionUuid?: string;
+  studentName?: string;
   amount: number;
   method: PaymentMethod;
   reference: string;

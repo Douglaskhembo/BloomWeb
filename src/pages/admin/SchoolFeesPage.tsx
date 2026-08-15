@@ -697,7 +697,7 @@ const SchoolFeesPage = () => {
                     return (
                       <TableRow key={p.id}>
                         <TableCell className="text-xs whitespace-nowrap">{fmtDT(p.date)}</TableCell>
-                        <TableCell className="font-medium">{s ? `${s.name} (${s.admissionNo})` : p.studentId}</TableCell>
+                        <TableCell className="font-medium">{s ? `${s.name} (${s.admissionNo})` : (p.studentName ?? p.studentId ?? "—")}</TableCell>
                         <TableCell><Badge variant="secondary" className="text-[10px]">{p.method}</Badge></TableCell>
                         <TableCell className="text-xs">
                           {p.bankName && <div>{p.bankName}</div>}
