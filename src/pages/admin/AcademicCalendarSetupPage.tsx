@@ -32,8 +32,6 @@ const ACADEMIC_YEARS = Array.from({ length: 5 }, (_, idx) => CURRENT_YEAR + 1 - 
 const emptyTermPeriodForm: TermPeriodFormValues = { academicYear: CURRENT_YEAR, term: "Term 1", startDate: "", endDate: "" };
 const emptyEventForm: SchoolEventFormValues = { name: "", startDate: "", endDate: "", active: true };
 
-/** Friendly "how long" readout for a term period — weeks and an approximate month count, since
- *  that's how the duration was described (Kenya's calendar shifts, so this is computed, not fixed). */
 const formatDuration = (start: string, end: string) => {
   if (!start || !end) return "—";
   const days = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86_400_000) + 1;
@@ -122,8 +120,6 @@ const AcademicCalendarSetupPage = () => {
       Swal.fire({ icon: "error", title: "Failed to delete term period", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
-
-  // ── School Events ───────────────────────────────────────────────────────
 
   const openAddEvent = () => { setEditingEventId(null); setEventForm(emptyEventForm); setEventModalOpen(true); };
   const openEditEvent = (ev: SchoolEvent) => {

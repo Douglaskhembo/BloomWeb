@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { FileText, Download, BarChart3, Users, DollarSign, GraduationCap, AlertTriangle } from "lucide-react";
 
 const reports = [
-  { title: "Student Enrollment Report", desc: "Complete list of all enrolled students by grade", icon: Users, category: "Students", to: null },
+  { title: "Student Enrollment Report", desc: "Complete list of all enrolled students by grade", icon: Users, category: "Students", to: "/admin/students" },
   { title: "Fee Collection Summary", desc: "Expected vs collected fees by grade and stream", icon: DollarSign, category: "Finance", to: "/admin/fee-collection-summary" },
   { title: "Fee Arrears", desc: "Students ranked by outstanding balance", icon: AlertTriangle, category: "Finance", to: "/admin/fee-arrears" },
-  { title: "Academic Performance Report", desc: "CBC assessment results by grade and subject", icon: GraduationCap, category: "Academics", to: null },
+  { title: "Academic Performance Report", desc: "CBC assessment results by grade and subject", icon: GraduationCap, category: "Academics", to: "/admin/academics" },
   { title: "Attendance Report", desc: "Daily records and attendance percentage by student", icon: BarChart3, category: "Students", to: "/admin/attendance" },
   { title: "Transport Usage Report", desc: "Route utilization and driver logs", icon: FileText, category: "Transport", to: null },
   { title: "Financial Reconciliation", desc: "M-Pesa and bank payment reconciliation", icon: DollarSign, category: "Finance", to: null },

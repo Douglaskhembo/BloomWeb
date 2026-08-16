@@ -12,6 +12,7 @@ import { Plus, FileText, Users, CheckCircle, Clock, ArrowRight, Upload, X, File,
 import StatCard from "@/components/dashboard/StatCard";
 import { useStudentContext, STAGE_LABELS, Application } from "@/context/StudentContext";
 import { SchoolApi, FeeApi } from "@/services/api";
+import { useAuth } from "@/context/AuthContext";
 import Swal from "sweetalert2";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import AdmissionViewModal from "@/components/modal/AdmissionViewModal";
@@ -37,6 +38,9 @@ const formatFileSize = (bytes: number) => {
 
 const AdmissionsPage = () => {
   const { applications, addApplication, updateApplicationStage, getNextStage, loadingApplications } = useStudentContext();
+  const { user } = useAuth();
+  const canManage = (user?.permissions ?? []).includes("ADMISSION_MANAGE");
+  const canCollectFees = (user?.permissions ?? []).includes("FEES_COLLECT");
   const [showForm, setShowForm] = useState(false);
   const [step, setStep] = useState(1);
   const [viewingApp, setViewingApp] = useState<Application | null>(null);
@@ -122,8 +126,27 @@ const AdmissionsPage = () => {
   const handleAdvanceStage = async (uuid: string, currentStage: string) => {
     const next = currentStage === "FEE_PAYMENT" ? "ENROLLED" : getNextStage(currentStage);
     if (!next) return;
+    let joinDate: string | undefined;
+    if (next === "ENROLLED") {
+      // The join date is what fee billing gates on (never charged for a term before it) — let
+      // the admin confirm or override it here rather than silently stamping "today", since
+      // enrollment can be recorded a few days after a student actually started attending.
+      const today = new Date().toISOString().slice(0, 10);
+      const { value, isConfirmed } = await Swal.fire({
+        icon: "question",
+        title: "Confirm join date",
+        text: "This is the date the student actually starts attending — fee billing starts from here.",
+        input: "date",
+        inputValue: today,
+        inputValidator: (v) => (!v ? "A join date is required" : undefined),
+        showCancelButton: true,
+        confirmButtonText: "Enroll",
+      });
+      if (!isConfirmed || !value) return;
+      joinDate = value;
+    }
     try {
-      await updateApplicationStage(uuid, next);
+      await updateApplicationStage(uuid, next, joinDate);
       if (next === "ENROLLED") {
         Swal.fire({ title: "Success", text: "Student enrolled and added to the Students register!", icon: "success", showConfirmButton: true });
       } else {
@@ -364,7 +387,7 @@ const AdmissionsPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Admissions</h1>
           <p className="text-muted-foreground">Manage the multi-stage admission workflow</p>
         </div>
-        <Button size="sm" onClick={() => setShowForm(true)}><Plus className="w-4 h-4 mr-1" /> New Application</Button>
+        {canManage && <Button size="sm" onClick={() => setShowForm(true)}><Plus className="w-4 h-4 mr-1" /> New Application</Button>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -430,20 +453,22 @@ const AdmissionsPage = () => {
                               <Button size="sm" variant="outline" onClick={() => setViewingApp(app)}>
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {app.stage === "FEE_PAYMENT" && (
+                              {app.stage === "FEE_PAYMENT" && canCollectFees && (
                                 <Button size="sm" variant="outline" onClick={() => setPayingApp(app)}>
                                   <Banknote className="w-4 h-4 mr-1" /> Record Payment
                                 </Button>
                               )}
-                              <Button
-                                size="sm"
-                                onClick={() => handleAdvanceStage(app.uuid, app.stage)}
-                                disabled={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid)}
-                                title={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid) ? "Record and confirm at least one payment before enrolling" : undefined}
-                              >
-                                {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
-                                <ArrowRight className="w-4 h-4 ml-1" />
-                              </Button>
+                              {canManage && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleAdvanceStage(app.uuid, app.stage)}
+                                  disabled={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid)}
+                                  title={app.stage === "FEE_PAYMENT" && !confirmedPaymentUuids.has(app.uuid) ? "Record and confirm at least one payment before enrolling" : undefined}
+                                >
+                                  {app.stage === "FEE_PAYMENT" ? "Enrol Student" : `Move to ${STAGE_LABELS[getNextStage(app.stage) ?? ""] ?? "Next"}`}
+                                  <ArrowRight className="w-4 h-4 ml-1" />
+                                </Button>
+                              )}
                             </div>
                           </div>
                         ))}

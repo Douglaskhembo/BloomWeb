@@ -17,6 +17,10 @@ import Swal from "sweetalert2";
 
 const UsersPage = () => {
   const { user: authUser } = useAuth();
+  const myPermissions = authUser?.permissions ?? [];
+  const canCreate = myPermissions.includes("USER_CREATE");
+  const canEdit = myPermissions.includes("USER_EDIT");
+  const canDelete = myPermissions.includes("USER_DELETE");
   const roleSectionRef = useRef<HTMLDivElement>(null);
 
   const [users, setUsers]             = useState<any[]>([]);
@@ -278,7 +282,7 @@ const UsersPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Users</h1>
           <p className="text-muted-foreground">Manage system users and their access</p>
         </div>
-        <Button size="sm" onClick={openAdd}><UserPlus className="w-4 h-4 mr-1" /> Add User</Button>
+        {canCreate && <Button size="sm" onClick={openAdd}><UserPlus className="w-4 h-4 mr-1" /> Add User</Button>}
       </div>
 
       {/* ── Users table ── */}
@@ -333,19 +337,27 @@ const UsersPage = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={e => openEdit(u, e)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <button onClick={e => handleToggleActive(u, e)}
-                        className={`text-xs font-semibold px-2 py-0.5 rounded-full border-0 cursor-pointer ${u.active ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-green-100 text-green-700 hover:bg-green-200"}`}>
-                        {u.active ? "Disable" : "Enable"}
-                      </button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset Password" onClick={e => handleResetPassword(u, e)}>
-                        <KeyRound className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={e => handleDelete(u, e)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={e => openEdit(u, e)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      {canEdit && (
+                        <button onClick={e => handleToggleActive(u, e)}
+                          className={`text-xs font-semibold px-2 py-0.5 rounded-full border-0 cursor-pointer ${u.active ? "bg-red-100 text-red-700 hover:bg-red-200" : "bg-green-100 text-green-700 hover:bg-green-200"}`}>
+                          {u.active ? "Disable" : "Enable"}
+                        </button>
+                      )}
+                      {canEdit && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" title="Reset Password" onClick={e => handleResetPassword(u, e)}>
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={e => handleDelete(u, e)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

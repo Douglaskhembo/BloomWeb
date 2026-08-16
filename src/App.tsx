@@ -31,7 +31,6 @@ import BillsPage from "./pages/admin/BillsPage";
 import UsersPage from "./pages/admin/UsersPage";
 import RolesPermissionsPage from "./pages/admin/RolesPermissionsPage";
 import StudentPerformancePage from "./pages/admin/StudentPerformancePage";
-import SubjectPerformancePage from "./pages/admin/SubjectPerformancePage";
 import GradeComparisonPage from "./pages/admin/GradeComparisonPage";
 import SchoolFeesPage from "./pages/admin/SchoolFeesPage";
 import FeeStatementPage from "./pages/admin/FeeStatementPage";
@@ -70,6 +69,7 @@ import TeacherPayslips from "./pages/teacher/TeacherPayslips";
 import TeacherAttendance from "./pages/teacher/TeacherAttendance";
 import ParentAttendance from "./pages/parent/ParentAttendance";
 import TermReportsPage from "./pages/shared/TermReportsPage";
+import ClassPerformancePage from "./pages/shared/ClassPerformancePage";
 
 const queryClient = new QueryClient();
 
@@ -133,7 +133,7 @@ function AppRoutes() {
         <Route path="setup-biometrics" element={<BiometricsSetupPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="student-performance" element={<StudentPerformancePage />} />
-        <Route path="subject-performance" element={<SubjectPerformancePage />} />
+        <Route path="subject-performance" element={<ClassPerformancePage role="admin" />} />
         <Route path="grade-comparison" element={<GradeComparisonPage />} />
         <Route path="term-reports" element={<TermReportsPage role="admin" />} />
       </Route>
@@ -155,6 +155,7 @@ function AppRoutes() {
         <Route index element={<TeacherDashboard />} />
         <Route path="attendance" element={<TeacherAttendance />} />
         <Route path="classes" element={<TeacherClasses />} />
+        <Route path="performance" element={<ClassPerformancePage role="teacher" />} />
         <Route path="timetable" element={<TeacherTimetable />} />
         <Route path="leave" element={<TeacherLeave />} />
         <Route path="payslips" element={<TeacherPayslips />} />

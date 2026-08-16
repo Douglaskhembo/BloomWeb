@@ -81,6 +81,37 @@ const TeacherAttendance = () => {
         </p>
       </div>
 
+      {assignment && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2"><Users className="w-4 h-4" /> Class Roster</CardTitle>
+            <CardDescription>Students enrolled in {assignment.grade} {assignment.stream}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {roster.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No active students in this class yet.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead className="w-12">#</TableHead><TableHead>Adm No</TableHead><TableHead>Student</TableHead><TableHead>Parent/Guardian</TableHead><TableHead>Phone</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {roster.map((s: any, i: number) => (
+                    <TableRow key={s.uuid ?? s.admissionNumber}>
+                      <TableCell className="text-muted-foreground text-xs">{i + 1}</TableCell>
+                      <TableCell className="font-mono text-xs">{s.admissionNumber}</TableCell>
+                      <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{s.parentName || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{s.parentPhone || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base">Filters</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">

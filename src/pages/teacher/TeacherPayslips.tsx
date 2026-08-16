@@ -8,8 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
-import { PayrollApi } from "@/services/api";
+import { PayrollApi, StaffApi, SchoolApi } from "@/services/api";
 import { useAuth } from "@/context/AuthContext";
+import { getStaffIdentifier } from "@/utils/staff";
 import { formatKES } from "@/lib/payroll/kenya";
 import Pagination from "@/utils/Pagination";
 import jsPDF from "jspdf";
@@ -62,6 +63,11 @@ const TeacherPayslips = () => {
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewPayslip, setPreviewPayslip] = useState<Payslip | null>(null);
+  // The human-readable staff number (e.g. "STF/2026/001") — user.profileRef is the Staff UUID,
+  // not meant to be shown to anyone, so it must never be printed on a payslip.
+  const [staffNo, setStaffNo] = useState<string>("—");
+  const [staffRole, setStaffRole] = useState<string>("—");
+  const [schoolInfo, setSchoolInfo] = useState<any>({});
 
   const [payslipsPage, setPayslipsPage] = useState(1);
   const [payslipsPerPage, setPayslipsPerPage] = useState(10);
@@ -71,6 +77,18 @@ const TeacherPayslips = () => {
       .then((rows) => setPayslips((Array.isArray(rows) ? rows : []).map(toPayslip)))
       .catch(() => setPayslips([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!user?.profileRef) return;
+    StaffApi.getByUuid(user.profileRef).then((s) => {
+      setStaffNo(getStaffIdentifier(s) || "—");
+      setStaffRole(s?.staffRole?.name || s?.staffType || "—");
+    }).catch(() => {});
+  }, [user?.profileRef]);
+
+  useEffect(() => {
+    SchoolApi.getInfo().then((data) => setSchoolInfo(data ?? {})).catch(() => {});
   }, []);
 
   const currentYear = new Date().getFullYear();
@@ -84,14 +102,62 @@ const TeacherPayslips = () => {
 
   const downloadPayslip = (p: Payslip) => {
     const doc = new jsPDF();
-    doc.setFontSize(14);
-    doc.text(`Payslip — ${p.monthLabel}`, 14, 16);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const left = 14;
+    const right = pageWidth - 14;
+    let y = 16;
+
+    // Letterhead — school details
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.text(schoolInfo.name || "School Name", pageWidth / 2, y, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    y += 6;
+    if (schoolInfo.registrationNumber) {
+      doc.setFontSize(9);
+      doc.text(`Reg. No. ${schoolInfo.registrationNumber}`, pageWidth / 2, y, { align: "center" });
+      y += 5;
+    }
+    const addressLine = [schoolInfo.physicalAddress, schoolInfo.postalAddress, schoolInfo.county].filter(Boolean).join(" · ");
+    if (addressLine) {
+      doc.setFontSize(9);
+      doc.text(addressLine, pageWidth / 2, y, { align: "center" });
+      y += 5;
+    }
+    const contactLine = [schoolInfo.phone, schoolInfo.email, schoolInfo.website].filter(Boolean).join("   ·   ");
+    if (contactLine) {
+      doc.setFontSize(9);
+      doc.text(contactLine, pageWidth / 2, y, { align: "center" });
+      y += 5;
+    }
+    y += 2;
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.7);
+    doc.line(left, y, right, y);
+    y += 9;
+
+    // Title + pay period
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text("PAYSLIP", left, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Pay Period: ${p.monthLabel}`, right, y, { align: "right" });
+    y += 9;
+
+    // Staff details
     doc.setFontSize(10);
-    doc.text(`${user?.firstName ?? ""} ${user?.otherNames ?? ""}`.trim(), 14, 24);
-    doc.text(`Staff ID: ${user?.profileRef ?? "—"}`, 14, 29);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${user?.firstName ?? ""} ${user?.otherNames ?? ""}`.trim(), left, y);
+    doc.setFont("helvetica", "normal");
+    y += 5;
+    doc.setFontSize(9);
+    doc.text(`Staff ID: ${staffNo}`, left, y);
+    doc.text(`Role: ${staffRole}`, right, y, { align: "right" });
+    y += 8;
 
     autoTable(doc, {
-      startY: 36,
+      startY: y,
       head: [["Earnings", "Amount (KES)"]],
       body: [
         ["Basic Salary", p.basicSalary.toLocaleString()],
@@ -119,12 +185,21 @@ const TeacherPayslips = () => {
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text(`Net Pay: KES ${p.netSalary.toLocaleString()}`, 14, finalY);
+    doc.text(`Net Pay: KES ${p.netSalary.toLocaleString()}`, left, finalY);
+    doc.setFont("helvetica", "normal");
     if (p.paymentMethod) {
       doc.setFontSize(9);
-      doc.text(`Paid via: ${p.paymentMethod.replace("_", " ")}${p.payoutDestination ? " — " + p.payoutDestination : ""}`, 14, finalY + 6);
+      doc.text(`Paid via: ${p.paymentMethod.replace("_", " ")}${p.payoutDestination ? " — " + p.payoutDestination : ""}`, left, finalY + 6);
     }
+
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text("This is a system-generated payslip — for payroll queries contact the school finance office.", left, pageHeight - 12);
+    doc.text(`Printed ${new Date().toLocaleString()}`, right, pageHeight - 12, { align: "right" });
+    doc.setTextColor(0);
 
     doc.save(`Payslip-${p.monthLabel.replace(/\s+/g, "-")}.pdf`);
     Swal.fire({ icon: "info", title: "Payslip downloaded", showConfirmButton: true });
@@ -218,7 +293,7 @@ const TeacherPayslips = () => {
               {/* Employee Info */}
               <div className="p-4 rounded-lg bg-muted/50 space-y-1">
                 <p className="text-sm font-semibold">{user?.firstName} {user?.otherNames}</p>
-                <p className="text-xs text-muted-foreground">Staff ID: {user?.profileRef ?? "—"}</p>
+                <p className="text-xs text-muted-foreground">Staff ID: {staffNo} · Role: {staffRole}</p>
                 <p className="text-xs text-muted-foreground">Pay Period: {previewPayslip.monthLabel}</p>
               </div>
 

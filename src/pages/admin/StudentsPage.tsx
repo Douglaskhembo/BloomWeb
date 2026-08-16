@@ -14,6 +14,7 @@ import { useStudentContext, Student } from "@/context/StudentContext";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/context/AuthContext";
 
 const statusOptions = ["ACTIVE", "SUSPENDED", "DISABLED", "GRADUATED"];
 const statusLabels: Record<string, string> = { ACTIVE: "Active", SUSPENDED: "Suspended", DISABLED: "Disabled", GRADUATED: "Graduated" };
@@ -23,6 +24,10 @@ const statusColors: Record<string, "default" | "secondary" | "outline" | "destru
 
 const StudentsPage = () => {
   const { students, updateStudent, updateStudentStatus, deleteStudent, loadingStudents } = useStudentContext();
+  const { user } = useAuth();
+  const permissions = user?.permissions ?? [];
+  const canEdit = permissions.includes("STUDENT_EDIT");
+  const canDelete = permissions.includes("STUDENT_DELETE");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -100,13 +105,17 @@ const StudentsPage = () => {
             <p className="text-muted-foreground text-sm">Adm No: {selectedStudent.admissionNumber}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
-              <Trash2 className="w-4 h-4 mr-1" /> Delete
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => { setNewStatus(selectedStudent.status); setShowStatusDialog(true); }}>
-              Update Status
-            </Button>
-            {!isEditing ? (
+            {canDelete && (
+              <Button variant="destructive" size="sm" onClick={() => setShowDeleteConfirm(true)}>
+                <Trash2 className="w-4 h-4 mr-1" /> Delete
+              </Button>
+            )}
+            {canEdit && (
+              <Button variant="outline" size="sm" onClick={() => { setNewStatus(selectedStudent.status); setShowStatusDialog(true); }}>
+                Update Status
+              </Button>
+            )}
+            {!canEdit ? null : !isEditing ? (
               <Button size="sm" onClick={() => { setEditData({ ...selectedStudent }); setIsEditing(true); }}>
                 <Pencil className="w-4 h-4 mr-1" /> Edit
               </Button>
@@ -162,6 +171,13 @@ const StudentsPage = () => {
                 <div>
                   <Label className="text-muted-foreground text-xs">Admission Number</Label>
                   <p className="font-medium mt-1 font-mono">{selectedStudent.admissionNumber}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Join Date</Label>
+                  {isEditing ? (
+                    <Input type="date" value={editData.joinDate ?? ""} onChange={e => setEditData({ ...editData, joinDate: e.target.value })} />
+                  ) : <p className="font-medium mt-1">{selectedStudent.joinDate || "—"}</p>}
+                  <p className="text-[11px] text-muted-foreground mt-1">When they actually started attending — fee billing never charges a term before this date.</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground text-xs">Grade</Label>

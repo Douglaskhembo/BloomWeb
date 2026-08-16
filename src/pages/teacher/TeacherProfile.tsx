@@ -15,8 +15,6 @@ const STATUS_BADGE: Record<string, "default" | "secondary" | "destructive"> = { 
 const TeacherProfile = () => {
   const [staff, setStaff] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ phone: "", email: "", address: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelationship: "" });
 
   const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [changingPassword, setChangingPassword] = useState(false);
@@ -24,36 +22,12 @@ const TeacherProfile = () => {
   const load = () => {
     setLoading(true);
     StaffApi.getMyProfile()
-      .then((s) => {
-        setStaff(s);
-        setForm({
-          phone: s.phone ?? "", email: s.email ?? "", address: s.address ?? "",
-          emergencyContactName: s.emergencyContactName ?? "", emergencyContactPhone: s.emergencyContactPhone ?? "",
-          emergencyContactRelationship: s.emergencyContactRelationship ?? "",
-        });
-      })
+      .then((s) => setStaff(s))
       .catch((err) => Swal.fire({ icon: "error", title: "Couldn't load your profile", text: getBackendErrorMessage(err), showConfirmButton: true }))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
-
-  const handleSave = async () => {
-    if (!form.phone || !form.email) {
-      Swal.fire({ icon: "error", title: "Phone and email are required", showConfirmButton: true });
-      return;
-    }
-    setSaving(true);
-    try {
-      await StaffApi.updateMyProfile(form);
-      Swal.fire({ title: "Saved", text: "Your profile has been updated", icon: "success", showConfirmButton: true });
-      load();
-    } catch (err) {
-      Swal.fire({ icon: "error", title: "Couldn't save changes", text: getBackendErrorMessage(err), showConfirmButton: true });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleChangePassword = async () => {
     if (!pwForm.currentPassword || !pwForm.newPassword || !pwForm.confirmPassword) {
@@ -123,32 +97,22 @@ const TeacherProfile = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><User className="w-4 h-4" /> Contact Details</CardTitle>
-          <CardDescription>Keep these up to date so the school can reach you</CardDescription>
+          <CardDescription>Read-only — contact the school office to request changes</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label className="text-xs flex items-center gap-1"><Phone className="w-3 h-3" /> Phone</Label>
-              <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs flex items-center gap-1"><Mail className="w-3 h-3" /> Email</Label>
-              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <Label className="text-xs">Address</Label>
-              <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div><span className="text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" /> Phone</span><p className="font-medium">{staff.phone || "—"}</p></div>
+            <div><span className="text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" /> Email</span><p className="font-medium">{staff.email || "—"}</p></div>
+            <div className="md:col-span-2"><span className="text-muted-foreground">Address</span><p className="font-medium">{staff.address || "—"}</p></div>
           </div>
-          <div className="pt-2 border-t space-y-4">
+          <div className="pt-2 border-t space-y-2">
             <p className="text-sm font-medium">Emergency Contact</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-1"><Label className="text-xs">Name</Label><Input value={form.emergencyContactName} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} /></div>
-              <div className="space-y-1"><Label className="text-xs">Phone</Label><Input value={form.emergencyContactPhone} onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })} /></div>
-              <div className="space-y-1"><Label className="text-xs">Relationship</Label><Input value={form.emergencyContactRelationship} onChange={(e) => setForm({ ...form, emergencyContactRelationship: e.target.value })} /></div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div><span className="text-muted-foreground">Name</span><p className="font-medium">{staff.emergencyContactName || "—"}</p></div>
+              <div><span className="text-muted-foreground">Phone</span><p className="font-medium">{staff.emergencyContactPhone || "—"}</p></div>
+              <div><span className="text-muted-foreground">Relationship</span><p className="font-medium">{staff.emergencyContactRelationship || "—"}</p></div>
             </div>
           </div>
-          <Button onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
         </CardContent>
       </Card>
 

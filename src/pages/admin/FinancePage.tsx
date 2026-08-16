@@ -31,13 +31,14 @@ const FinancePage = () => {
     (async () => {
       setLoading(true);
       try {
-        const [rawStudents, feeItems, rawPayments] = await Promise.all([
+        const [rawStudents, feeItems, rawCharges, rawPayments] = await Promise.all([
           StudentApi.getAll(),
           FeeApi.getItems(),
+          FeeApi.getCurrentCharges(),
           FeeApi.getPayments(),
         ]);
         if (cancelled) return;
-        setStudents(rawStudents.map((s: any) => toStudent(s, feeItems)));
+        setStudents(rawStudents.map((s: any) => toStudent(s, rawCharges, feeItems)));
         setPayments(rawPayments.map(toPayment).sort((a, b) => b.date.localeCompare(a.date)));
       } catch (err) {
         Swal.fire({

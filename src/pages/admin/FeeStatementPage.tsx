@@ -114,6 +114,29 @@ const FeeStatementPage = () => {
   }, [selectedId]);
 
   const student = useMemo(() => students.find((s) => s.id === selectedId) ?? null, [students, selectedId]);
+
+  // What THIS student is actually billed for the CURRENT term — sourced from their own persisted
+  // StudentFeeCharge rows, not the raw grade-wide catalog. Those rows only ever exist for a period
+  // that's actually started (never a future term) and only for items the student is eligible for
+  // (boarding/transport charges only generate for actual subscribers — see FeeService.isEligible)
+  // so this list is automatically correct on both counts: current term only, and only what they're
+  // really subscribed to. A student who later joins a transport route picks up that line the next
+  // time this page loads — no manual step, the backend regenerates charges lazily on every fetch.
+  const currentPeriodCharges = useMemo(() => {
+    if (!student) return [] as any[];
+    const own = charges.filter((c) => c.admissionNumber === student.id);
+    if (own.length === 0) return [];
+    const rank = (t: string) => ({ "Term 1": 1, "Term 2": 2, "Term 3": 3, "Full Year": 1 } as Record<string, number>)[t] ?? 3;
+    const latest = own.reduce((best: any, c: any) => {
+      if (!best) return c;
+      if (c.academicYear !== best.academicYear) return c.academicYear > best.academicYear ? c : best;
+      return rank(c.period) > rank(best.period) ? c : best;
+    }, null as any);
+    return own.filter((c: any) => c.academicYear === latest.academicYear && c.period === latest.period);
+  }, [charges, student]);
+
+  // Fallback only for a grade that has never been through the Maker/Approver workflow at all (no
+  // persisted charges exist for anyone) — same fallback FeeStatementPage's debit lines already use.
   const gradeItems = useMemo(
     () => feeItems.filter((it) => it.active && (!it.gradeLevels?.length || it.gradeLevels.some((g: any) => g.name === student?.grade))),
     [feeItems, student],
@@ -128,24 +151,18 @@ const FeeStatementPage = () => {
     [students],
   );
 
-  // Debit lines come from the school's actual approved fee-structure history for this grade — one
-  // charge per (academicYear, term), using the most recently approved version for that period (a
-  // fee structure can be revised over time; only the latest approved revision is what was really
-  // billed). If the grade has never been through the Maker/Approver fee-structure workflow at all,
-  // fall back to a single standing-charge line from currently active fee items so the statement
-  // isn't just empty.
+  // Debit lines come strictly from this student's own persisted StudentFeeCharge rows
+  // (FeeApi.getCurrentCharges) — the backend only ever generates those for a period whose
+  // TermPeriod has actually started AND for students who were already enrolled by that period's
+  // end (see fee-billing-term-gating memory). So a period this student has zero charge rows for
+  // means exactly "hasn't started yet" or "was before they joined" — it must never appear on the
+  // statement, not be backfilled from the structure's raw catalog lines. If the grade has never
+  // been through the Maker/Approver fee-structure workflow at all, fall back to a single
+  // standing-charge line from currently active fee items so the statement isn't just empty.
   const debitLines = useMemo(() => {
     if (!student) return [] as LedgerEntry[];
     const approved = structures.filter((s) => s.status === "APPROVED" && s.grade === student.grade);
-    const latestByPeriod = new Map<string, any>();
-    for (const s of approved) {
-      const key = `${s.academicYear}::${s.term}`;
-      const existing = latestByPeriod.get(key);
-      if (!existing || new Date(s.reviewedAt ?? s.updatedAt).getTime() > new Date(existing.reviewedAt ?? existing.updatedAt).getTime()) {
-        latestByPeriod.set(key, s);
-      }
-    }
-    if (latestByPeriod.size === 0) {
+    if (approved.length === 0) {
       const standing = expectedForGrade(student.grade, feeItems);
       if (standing <= 0) return [];
       const openingDate = payments[0]?.date ?? new Date().toISOString();
@@ -159,22 +176,27 @@ const FeeStatementPage = () => {
         balance: 0,
       }];
     }
-    return Array.from(latestByPeriod.values()).map((s) => {
-      // Prefer the persisted, eligibility-correct StudentFeeCharge rows generated for this exact
-      // structure version; only fall back to summing the structure's own lines (today's blanket
-      // "every student in the grade owes every enabled line" assumption) if none were found —
-      // belt-and-braces for a structure the backend hasn't backfilled charges for yet.
-      const studentCharges = charges.filter((c) => c.admissionNumber === student.id && c.feeStructureUuid === s.uuid);
-      const amount = studentCharges.length > 0
-        ? studentCharges.reduce((a: number, c: any) => a + (Number(c.amount) || 0), 0)
-        : (s.lines ?? []).reduce((a: number, l: any) => a + (l.enabled ? Number(l.amount) || 0 : 0), 0);
+
+    const structureByUuid = new Map(structures.map((s) => [s.uuid, s]));
+    const byStructure = new Map<string, any[]>();
+    for (const c of charges) {
+      if (c.admissionNumber !== student.id) continue;
+      const list = byStructure.get(c.feeStructureUuid);
+      if (list) list.push(c); else byStructure.set(c.feeStructureUuid, [c]);
+    }
+
+    return Array.from(byStructure.entries()).map(([uuid, cs]) => {
+      const s = structureByUuid.get(uuid);
+      const amount = cs.reduce((a: number, c: any) => a + (Number(c.amount) || 0), 0);
+      const term = s?.term ?? cs[0].period;
+      const academicYear = s?.academicYear ?? cs[0].academicYear;
       return {
-        id: s.uuid,
-        date: s.reviewedAt ?? s.updatedAt,
+        id: uuid,
+        date: s?.reviewedAt ?? s?.updatedAt ?? cs[0].generatedAt,
         kind: "Debit" as const,
-        description: `${s.term} Fees — ${s.academicYear}`,
-        term: s.term as string,
-        academicYear: s.academicYear as number,
+        description: `${term} Fees — ${academicYear}`,
+        term: term as string,
+        academicYear: academicYear as number,
         debit: amount,
         credit: 0,
         balance: 0,
@@ -227,8 +249,15 @@ const FeeStatementPage = () => {
   const totalLedgerPages = Math.ceil(filteredLedger.length / ledgerPerPage);
   const pagedLedger = filteredLedger.slice((ledgerPage - 1) * ledgerPerPage, ledgerPage * ledgerPerPage);
 
-  const totalFeeItemPages = Math.ceil(gradeItems.length / feeItemsPerPage);
-  const pagedFeeItems = gradeItems.slice((feeItemsPage - 1) * feeItemsPerPage, feeItemsPage * feeItemsPerPage);
+  // Prefer this student's actual current-term charges (already term-correct and eligibility-
+  // correct); only fall back to the raw grade catalog when the grade has no persisted charges at
+  // all yet (never been through the Maker/Approver workflow — see gradeItems above).
+  const usingCurrentCharges = currentPeriodCharges.length > 0;
+  const displayFeeItems = usingCurrentCharges
+    ? currentPeriodCharges.map((c: any) => ({ id: `${c.feeStructureUuid}-${c.itemId}`, name: c.itemName, term: c.period, amount: c.amount }))
+    : gradeItems.map((it: any) => ({ id: it.id, name: it.name, term: it.term, amount: it.amount }));
+  const totalFeeItemPages = Math.ceil(displayFeeItems.length / feeItemsPerPage);
+  const pagedFeeItems = displayFeeItems.slice((feeItemsPage - 1) * feeItemsPerPage, feeItemsPage * feeItemsPerPage);
 
   function buildStatementDoc() {
     if (!student) return null;
@@ -313,7 +342,7 @@ const FeeStatementPage = () => {
           {/* Student Info Card */}
           <Card>
             <CardContent className="pt-6">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs">Student Name</p>
                   <p className="font-semibold">{student.name}</p>
@@ -325,6 +354,10 @@ const FeeStatementPage = () => {
                 <div>
                   <p className="text-muted-foreground text-xs">Grade</p>
                   <p className="font-semibold">{student.grade} {student.stream}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Join Date</p>
+                  <p className="font-semibold">{student.joinDate ? fmtD(student.joinDate) : "—"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Parent/Guardian</p>
@@ -360,11 +393,19 @@ const FeeStatementPage = () => {
             </Card>
           </div>
 
-          {/* Fee items making up current standing charges */}
+          {/* What this student is actually billed for, right now */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Fee Structure — {student.grade}</CardTitle>
-              <CardDescription>Currently active standing charges for this grade</CardDescription>
+              <CardTitle className="text-base">
+                {usingCurrentCharges
+                  ? `Current Charges — ${currentPeriodCharges[0].period} ${currentPeriodCharges[0].academicYear}`
+                  : `Fee Structure — ${student.grade}`}
+              </CardTitle>
+              <CardDescription>
+                {usingCurrentCharges
+                  ? `${student.name}'s own billed items for the current term — only what they're actually subscribed to (e.g. transport/boarding only if applicable)`
+                  : "No approved fee structure on file yet for this grade — showing the active catalog instead"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -379,7 +420,7 @@ const FeeStatementPage = () => {
                       <TableCell className="text-right">{Number(it.amount).toLocaleString()}</TableCell>
                     </TableRow>
                   ))}
-                  {gradeItems.length === 0 && (
+                  {displayFeeItems.length === 0 && (
                     <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-6">No fee items configured for this grade.</TableCell></TableRow>
                   )}
                 </TableBody>

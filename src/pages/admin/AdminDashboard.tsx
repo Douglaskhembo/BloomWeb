@@ -42,9 +42,6 @@ const AdminDashboard = () => {
     });
 
     FeeApi.getCollectionTrend(6).then(setCollectionTrend);
-
-    // No AcademicYear/Term entity exists yet, so "the current term" isn't a first-class fact —
-    // infer it as whichever (year, term) was most recently approved for fee purposes.
     FeeApi.getStructures().then((structures: any[]) => {
       const approved = structures.filter((s) => s.status === "APPROVED");
       if (approved.length === 0) { setLoadingFees(false); return; }

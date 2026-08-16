@@ -26,12 +26,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import {
-  GRADES, STREAMS, METHODS, ROLES, type Payment, type Student, type Role, type PaymentMethod,
+  GRADES, STREAMS, METHODS, type Payment, type Student, type PaymentMethod,
 } from "@/data/feesMock";
 import { FeeApi, StudentApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { useAuth } from "@/context/AuthContext";
-import { METHOD_TO_BACKEND, toPayment, toStudent, computeStudentAgg } from "@/utils/feePayment";
+import { METHOD_TO_BACKEND, toPayment, toStudent, computeStudentAgg, feeStandingHtml, isConfirmed } from "@/utils/feePayment";
+import { usePrintDocument } from "@/hooks/usePrintDocument";
 
 // Methods a real-world walk-in payer could hand over in person, or that staff might need to
 // backfill if the live M-Pesa/bank integration is temporarily down.
@@ -48,13 +49,50 @@ const PIE_COLORS = ["hsl(var(--primary))", "hsl(var(--success))", "hsl(var(--inf
 const SchoolFeesPage = () => {
   const { user } = useAuth();
   const verifierName = user?.userName || user?.firstName || "Finance Officer";
+  const { escapeHtml, openPrintDocument } = usePrintDocument();
+
+  /** Official proof-of-payment for one CONFIRMED payment — receiptNumber falls back to the
+   *  payment reference for older rows recorded before receiptNumber existed. Balance/credit shown
+   *  is the student's standing as of now (there's no per-payment running balance stored), so it's
+   *  labelled accordingly rather than implied to be the balance right after this specific payment
+   *  — callers should pass the freshest figures they have (post-payment where possible). */
+  const printReceipt = (p: Payment, s: Pick<Student, "name" | "admissionNo" | "grade" | "stream" | "parent" | "phone">, balance?: number, credit?: number) => {
+    const body = `
+      <div class="doc-title">
+        <h1>Payment Receipt</h1>
+        <h2>Receipt No. ${escapeHtml(p.receiptNumber || p.reference)}</h2>
+      </div>
+      <div class="meta">
+        <div><span>Date:</span>${escapeHtml(fmtDT(p.date))}</div>
+        <div><span>Method:</span>${escapeHtml(p.method)}</div>
+        <div><span>Student:</span>${escapeHtml(s.name)}</div>
+        <div><span>Admission No.:</span>${escapeHtml(s.admissionNo)}</div>
+        <div><span>Grade:</span>${escapeHtml(s.grade)} ${escapeHtml(s.stream)}</div>
+        <div><span>Reference:</span>${escapeHtml(p.reference)}</div>
+        ${s.parent ? `<div><span>Parent/Guardian:</span>${escapeHtml(s.parent)}</div>` : ""}
+        ${s.phone ? `<div><span>Phone:</span>${escapeHtml(s.phone)}</div>` : ""}
+      </div>
+      <div class="grand"><span>Amount Received</span><span>KES ${p.amount.toLocaleString()}</span></div>
+      ${feeStandingHtml(balance, credit)}
+      ${p.notes ? `<div class="note"><strong>Note:</strong> ${escapeHtml(p.notes)}</div>` : ""}
+      <div class="signatures">
+        <div class="sig"><div class="sig-line">Received By${p.recordedBy ? ` — ${escapeHtml(p.recordedBy)}` : ""}</div></div>
+        <div class="sig"><div class="sig-line">Parent/Guardian Signature</div></div>
+      </div>`;
+    openPrintDocument(`Receipt - ${p.receiptNumber || p.reference}`, body, "This is an official payment receipt — retain for your records.");
+  };
 
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveMode, setLiveMode] = useState(true);
-  const [role, setRole] = useState<Role>("Administrator");
-  const canAct = role !== "Auditor";
+  // Real, backend-enforced rights for the logged-in user — not a self-selectable simulator.
+  // FEES_COLLECT (record a payment) and FEES_VERIFY_PAYMENT (verify/reject one already recorded)
+  // are deliberately separate so a maker-checker split is actually possible, mirroring the payroll
+  // approval workflow's FEES_APPROVE/FEES_MANAGE split for fee structures.
+  const permissions = user?.permissions ?? [];
+  const canCollect = permissions.includes("FEES_COLLECT");
+  const canVerifyPayments = permissions.includes("FEES_VERIFY_PAYMENT");
 
   // Manual payment capture (cash / cheque / bank-slip walk-ins, or a fallback when the live
   // M-Pesa/bank integration is down)
@@ -107,7 +145,24 @@ const SchoolFeesPage = () => {
         });
         refreshPendingVerification();
       } else {
-        Swal.fire({ title: "Success", text: `Payment recorded — ${rpStudent.name} • ${fmt(amt)}`, icon: "success", showConfirmButton: true });
+        // Fresh post-payment standing — can't wait for `studentAgg` to recompute (it's a memo tied
+        // to next render, and this closure's `payments`/`students` are still pre-payment) so total
+        // paid is derived directly: this student's prior confirmed payments (from the pre-update
+        // `payments` state) plus the one just confirmed.
+        const priorPaid = payments
+          .filter((x) => x.studentId === rpStudent.id && isConfirmed(x))
+          .reduce((a, x) => a + x.amount, 0);
+        const totalPaidNow = priorPaid + mapped.amount;
+        const freshBalance = Math.max(0, rpStudent.expected - totalPaidNow);
+        const freshCredit = Math.max(0, totalPaidNow - rpStudent.expected);
+        Swal.fire({
+          title: "Success",
+          text: `Payment recorded — ${rpStudent.name} • ${fmt(amt)}`,
+          icon: "success",
+          showCancelButton: true,
+          confirmButtonText: "Print Receipt",
+          cancelButtonText: "Close",
+        }).then((result) => { if (result.isConfirmed) printReceipt(mapped, rpStudent, freshBalance, freshCredit); });
       }
       setRecordOpen(false);
       resetRecordForm();
@@ -508,13 +563,7 @@ const SchoolFeesPage = () => {
           <Button variant="outline" size="sm" onClick={() => setLiveMode((v) => !v)}>
             {liveMode ? "Pause" : "Resume"} Live
           </Button>
-          <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-            <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {canAct && (
+          {canCollect && (
             <Button size="sm" onClick={() => setRecordOpen(true)}>
               <Plus className="w-4 h-4 mr-1" /> Record Payment
             </Button>
@@ -522,10 +571,10 @@ const SchoolFeesPage = () => {
         </div>
       </div>
 
-      {role === "Auditor" && (
+      {!canCollect && !canVerifyPayments && (
         <Card className="border-info/40 bg-info/5">
           <CardContent className="p-3 text-sm flex items-center gap-2">
-            <Eye className="w-4 h-4 text-info" /> Auditor (read-only) — payments and changes are disabled.
+            <Eye className="w-4 h-4 text-info" /> Read-only access — you don't have the Fees permissions needed to record or verify payments.
           </CardContent>
         </Card>
       )}
@@ -628,6 +677,7 @@ const SchoolFeesPage = () => {
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -656,11 +706,18 @@ const SchoolFeesPage = () => {
                             {vStatus}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          {vStatus === "Confirmed" && (
+                            <Button variant="ghost" size="sm" title="Print receipt" onClick={() => printReceipt(p, s, s.balance, s.credit)}>
+                              <Printer className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
                   {filteredPayments.length === 0 && (
-                    <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No payments match the current filters.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">No payments match the current filters.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -707,7 +764,7 @@ const SchoolFeesPage = () => {
                         <TableCell className="text-xs">{p.recordedBy ?? "—"}</TableCell>
                         <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{p.notes ?? "—"}</TableCell>
                         <TableCell className="text-right">
-                          {canAct ? (
+                          {canVerifyPayments ? (
                             <div className="flex justify-end gap-2">
                               <Button size="sm" variant="outline" onClick={() => handleVerify(p)}>
                                 <ShieldCheck className="w-4 h-4 mr-1 text-success" /> Verify

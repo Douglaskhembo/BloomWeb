@@ -1,30 +1,18 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Search } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { GraduationCap, Users, Award, BarChart3 } from "lucide-react";
 import Pagination from "@/utils/Pagination";
+import { SchoolApi, TermReportApi, AcademicCalendarApi } from "@/services/api";
 
-const performanceData = [
-  { name: "Brian Kamau", grade: "Grade 5", math: 85, english: 78, science: 92, kiswahili: 74, avg: 82, trend: "up" },
-  { name: "Faith Wanjiru", grade: "Grade 5", math: 91, english: 88, science: 85, kiswahili: 90, avg: 89, trend: "up" },
-  { name: "Kevin Ochieng", grade: "Grade 4", math: 65, english: 70, science: 58, kiswahili: 72, avg: 66, trend: "down" },
-  { name: "Mercy Akinyi", grade: "Grade 6", math: 78, english: 82, science: 80, kiswahili: 85, avg: 81, trend: "stable" },
-  { name: "James Mwangi", grade: "Grade 3", math: 72, english: 60, science: 68, kiswahili: 65, avg: 66, trend: "down" },
-  { name: "Lucy Chebet", grade: "Grade 7", math: 95, english: 92, science: 97, kiswahili: 88, avg: 93, trend: "up" },
-  { name: "Samuel Kiprop", grade: "Grade 8", math: 55, english: 62, science: 48, kiswahili: 70, avg: 59, trend: "down" },
-  { name: "Diana Nyambura", grade: "Grade 6", math: 88, english: 85, science: 90, kiswahili: 82, avg: 86, trend: "up" },
-];
-
-const TrendIcon = ({ trend }: { trend: string }) => {
-  if (trend === "up") return <TrendingUp className="w-4 h-4 text-success" />;
-  if (trend === "down") return <TrendingDown className="w-4 h-4 text-destructive" />;
-  return <Minus className="w-4 h-4 text-muted-foreground" />;
-};
+const TERMS = ["Term 1", "Term 2", "Term 3"];
+const currentYear = new Date().getFullYear();
+const years = [currentYear, currentYear - 1, currentYear - 2];
 
 const scoreColor = (score: number) => {
   if (score >= 80) return "text-success";
@@ -33,79 +21,126 @@ const scoreColor = (score: number) => {
 };
 
 const StudentPerformancePage = () => {
-  const [performancePage, setPerformancePage] = useState(1);
-  const [performancePerPage, setPerformancePerPage] = useState(10);
+  const [gradeLevels, setGradeLevels] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [term, setTerm] = useState("Term 1");
+  const [year, setYear] = useState(currentYear);
+  const [filterGrade, setFilterGrade] = useState("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
-  const avgScore = Math.round(performanceData.reduce((a, b) => a + b.avg, 0) / performanceData.length);
-  const topPerformers = performanceData.filter((s) => s.avg >= 80).length;
-  const needsSupport = performanceData.filter((s) => s.avg < 60).length;
+  useEffect(() => { SchoolApi.getGradeLevels().then(setGradeLevels); }, []);
+  useEffect(() => {
+    AcademicCalendarApi.getCurrentTerm().then((current) => {
+      if (current.term) setTerm(current.term);
+      if (current.academicYear) setYear(current.academicYear);
+    });
+  }, []);
 
-  const totalPerformancePages = Math.ceil(performanceData.length / performancePerPage);
-  const pagedPerformance = performanceData.slice((performancePage - 1) * performancePerPage, performancePage * performancePerPage);
+  const load = async (t: string, y: number, grade: string) => {
+    setLoading(true);
+    try {
+      setReports(await TermReportApi.getAll({ gradeLevelUuid: grade !== "all" ? grade : undefined, term: t, year: y }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(term, year, filterGrade); setPage(1); }, [term, year, filterGrade]);
+
+  const filtered = useMemo(() => {
+    if (!search) return reports;
+    const q = search.toLowerCase();
+    return reports.filter((r) => r.studentName?.toLowerCase().includes(q) || r.admissionNumber?.toLowerCase().includes(q));
+  }, [reports, search]);
+
+  const graded = filtered.filter((r) => r.meanScore > 0);
+  const avgScore = graded.length ? Math.round(graded.reduce((a, b) => a + b.meanScore, 0) / graded.length) : 0;
+  const topPerformers = graded.filter((r) => r.meanScore >= 80).length;
+  const needsSupport = graded.filter((r) => r.meanScore < 60).length;
+
+  const totalPages = Math.ceil(filtered.length / perPage);
+  const paged = filtered.slice((page - 1) * perPage, page * perPage);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Student Performance</h1>
-          <p className="text-muted-foreground">CBC-aligned academic performance tracking</p>
-        </div>
-        <div className="flex gap-2">
-          <Select defaultValue="term1">
-            <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Student Performance</h1>
+        <p className="text-muted-foreground">Mean score and class ranking, from actual recorded assessment marks</p>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Filters</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search student or admission no..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
+          </div>
+          <Select value={filterGrade} onValueChange={setFilterGrade}>
+            <SelectTrigger><SelectValue placeholder="Grade" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="term1">Term 1</SelectItem>
-              <SelectItem value="term2">Term 2</SelectItem>
-              <SelectItem value="term3">Term 3</SelectItem>
+              <SelectItem value="all">All Grades</SelectItem>
+              {gradeLevels.map((g) => <SelectItem key={g.uuid} value={g.uuid}>{g.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-1" /> Export</Button>
-        </div>
-      </div>
+          <Select value={term} onValueChange={setTerm}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{TERMS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard title="School Average" value={`${avgScore}%`} icon={BarChart3} iconColor="bg-primary/10 text-primary" />
-        <StatCard title="Total Students" value={performanceData.length.toString()} icon={Users} iconColor="bg-info/10 text-info" />
-        <StatCard title="Top Performers" value={topPerformers.toString()} change="≥80% avg" changeType="positive" icon={Award} iconColor="bg-success/10 text-success" />
-        <StatCard title="Needs Support" value={needsSupport.toString()} change="<60% avg" changeType="negative" icon={GraduationCap} iconColor="bg-destructive/10 text-destructive" />
+        <StatCard title="Students Graded" value={graded.length.toString()} icon={Users} iconColor="bg-info/10 text-info" />
+        <StatCard title="Top Performers" value={topPerformers.toString()} change="≥80% mean" changeType="positive" icon={Award} iconColor="bg-success/10 text-success" />
+        <StatCard title="Needs Support" value={needsSupport.toString()} change="<60% mean" changeType="negative" icon={GraduationCap} iconColor="bg-destructive/10 text-destructive" />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Performance by Student</CardTitle>
-          <CardDescription>Term 1 — 2026 subject-wise breakdown</CardDescription>
+          <CardDescription>{term} — {year} · mean score across every graded subject, ranked within grade+stream</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Student</TableHead>
+                <TableHead>Adm No</TableHead>
                 <TableHead>Grade</TableHead>
-                <TableHead className="text-center">Math</TableHead>
-                <TableHead className="text-center">English</TableHead>
-                <TableHead className="text-center">Science</TableHead>
-                <TableHead className="text-center">Kiswahili</TableHead>
-                <TableHead className="text-center">Average</TableHead>
-                <TableHead className="text-center">Trend</TableHead>
+                <TableHead className="text-center">Mean Score</TableHead>
+                <TableHead className="text-center">Position</TableHead>
+                <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagedPerformance.map((s) => (
-                <TableRow key={s.name}>
-                  <TableCell className="font-medium">{s.name}</TableCell>
-                  <TableCell><Badge variant="outline" className="text-xs">{s.grade}</Badge></TableCell>
-                  <TableCell className={`text-center ${scoreColor(s.math)}`}>{s.math}</TableCell>
-                  <TableCell className={`text-center ${scoreColor(s.english)}`}>{s.english}</TableCell>
-                  <TableCell className={`text-center ${scoreColor(s.science)}`}>{s.science}</TableCell>
-                  <TableCell className={`text-center ${scoreColor(s.kiswahili)}`}>{s.kiswahili}</TableCell>
-                  <TableCell className="text-center font-semibold">{s.avg}%</TableCell>
-                  <TableCell className="text-center"><TrendIcon trend={s.trend} /></TableCell>
+              {loading ? (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading...</TableCell></TableRow>
+              ) : paged.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No graded assessments for {term} {year} yet.</TableCell></TableRow>
+              ) : paged.map((r) => (
+                <TableRow key={r.studentUuid}>
+                  <TableCell className="font-medium">{r.studentName}</TableCell>
+                  <TableCell className="font-mono text-xs">{r.admissionNumber}</TableCell>
+                  <TableCell><Badge variant="outline" className="text-xs">{r.grade} {r.stream}</Badge></TableCell>
+                  <TableCell className={`text-center font-semibold ${scoreColor(r.meanScore)}`}>{r.meanScore}%</TableCell>
+                  <TableCell className="text-center">{r.position}</TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant={r.status === "Published" ? "default" : "secondary"} className="text-[10px]">{r.status}</Badge>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <Pagination currentPage={performancePage} totalPages={totalPerformancePages} onPageChange={setPerformancePage}
-            itemsPerPage={performancePerPage} onItemsPerPageChange={v => { setPerformancePerPage(v); setPerformancePage(1); }} />
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage}
+            itemsPerPage={perPage} onItemsPerPageChange={v => { setPerPage(v); setPage(1); }} />
         </CardContent>
       </Card>
     </div>

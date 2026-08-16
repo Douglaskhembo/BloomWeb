@@ -31,6 +31,7 @@ export const toPayment = (raw: any): Payment => ({
   amount: Number(raw.amount) || 0,
   method: METHOD_FROM_BACKEND[raw.method] ?? "Cash",
   reference: raw.reference,
+  receiptNumber: raw.receiptNumber ?? undefined,
   date: raw.paymentDate,
   source: raw.source === "MANUAL" ? "Manual" : "Streamed",
   verificationStatus: VERIFICATION_FROM_BACKEND[raw.verificationStatus] ?? "Confirmed",
@@ -90,6 +91,7 @@ export const toStudent = (raw: any, charges: any[], items: any[] = []): Student 
     stream: raw.stream ?? "",
     parent: raw.parentName ?? "",
     phone: raw.parentPhone ?? "",
+    joinDate: raw.joinDate ?? undefined,
     expected,
   };
 };
@@ -97,11 +99,15 @@ export const toStudent = (raw: any, charges: any[], items: any[] = []): Student 
 export interface StudentFeeAgg extends Student {
   paid: number;
   balance: number;
+  /** Amount paid beyond what's expected — a real overpayment/credit, not just clamped away. */
+  credit: number;
   status: "Cleared" | "Partial" | "Unpaid";
   lastDate?: string;
 }
 
-/** Per-student paid/balance, from CONFIRMED payments only (pending/rejected manual entries don't count yet). */
+/** Per-student paid/balance/credit, from CONFIRMED payments only (pending/rejected manual entries
+ *  don't count yet). `balance` and `credit` are never both positive — a student is either short,
+ *  exactly even, or in credit. */
 export function computeStudentAgg(students: Student[], confirmedPayments: Payment[]): StudentFeeAgg[] {
   const map = new Map<string, { paid: number; lastDate?: string }>();
   confirmedPayments.forEach((p) => {
@@ -114,7 +120,22 @@ export function computeStudentAgg(students: Student[], confirmedPayments: Paymen
     const a = map.get(s.id) ?? { paid: 0 };
     const paid = Math.min(a.paid, s.expected);
     const balance = Math.max(0, s.expected - paid);
+    const credit = Math.max(0, a.paid - s.expected);
     const status = paid === 0 ? "Unpaid" : balance === 0 ? "Cleared" : "Partial";
-    return { ...s, paid, balance, status: status as StudentFeeAgg["status"], lastDate: a.lastDate };
+    return { ...s, paid, balance, credit, status: status as StudentFeeAgg["status"], lastDate: a.lastDate };
   });
 }
+
+/** Renders the fee-standing line for a payment receipt — outstanding balance, overpayment credit
+ *  (a real, admin/parent-visible fact, not just silently clamped to zero), or a fully-paid note.
+ *  `undefined` means "not computed for this receipt" (skip the line entirely) rather than "zero". */
+export const feeStandingHtml = (balance: number | undefined, credit: number | undefined): string => {
+  if (balance === undefined && credit === undefined) return "";
+  if ((credit ?? 0) > 0) {
+    return `<p style="margin-top:14px;font-size:12.5px"><b>Credit Balance:</b> KES ${(credit as number).toLocaleString()} — overpaid; will be applied to future fees.</p>`;
+  }
+  if ((balance ?? 0) > 0) {
+    return `<p style="margin-top:14px;font-size:12.5px"><b>Outstanding Balance (as of today):</b> KES ${(balance as number).toLocaleString()}</p>`;
+  }
+  return `<p style="margin-top:14px;font-size:12.5px"><b>Balance:</b> KES 0 — fully paid, no arrears.</p>`;
+};

@@ -38,6 +38,7 @@ import { useAuth } from "@/context/AuthContext";
 import Pagination from "@/utils/Pagination";
 import { FeeApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { usePrintDocument } from "@/hooks/usePrintDocument";
 
 const emptyForm: FeeItemFormValues = {
   name: "", grades: [], amount: 0, term: "Per Term", term1Amount: "", term2Amount: "", term3Amount: "",
@@ -179,9 +180,9 @@ const FeeStructureSetupPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const { escapeHtml, openPrintDocument } = usePrintDocument();
   const [feeItems, setFeeItems] = useState<ReturnType<typeof toFeeItem>[]>([]);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
-  const [schoolInfo, setSchoolInfo] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -261,7 +262,6 @@ const FeeStructureSetupPage = () => {
   useEffect(() => {
     load();
     SchoolApi.getGradeLevels().then((data) => setGradeLevels(data.map(toGradeLevelOption)));
-    SchoolApi.getInfo().then((data) => setSchoolInfo(data ?? {}));
   }, []);
 
   // Latest approved lines per grade/term, derived from the loaded structures.
@@ -370,6 +370,22 @@ const FeeStructureSetupPage = () => {
     : hasSelection));
   const statementTotal = currentLines.filter((line) => line.enabled).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
 
+  // Active, grade-applicable fee items that simply never show up above because their own billing
+  // cycle (Per Year / One-time) doesn't match a per-term structure, or vice versa (a "Per Term"
+  // item won't show under Full Year either) — itemsForGrade()/billingCycleFor() silently filters
+  // these out. That silence is exactly what makes "why is Exam Fee missing from Term 2" so
+  // confusing: the item exists, is active, applies to this grade — it's just configured for a
+  // different cycle. Surfaced here so it's a visible, fixable mismatch instead of a silent gap.
+  const excludedByCycle = useMemo(() => {
+    if (isAllScope) return [];
+    const cycles = billingCycleFor(selectedTerm as TermKey);
+    return feeItems.filter((item) =>
+      item.active
+      && (item.grades.length === 0 || item.grades.includes(selectedGrade))
+      && !cycles.includes(item.term),
+    );
+  }, [feeItems, isAllScope, selectedGrade, selectedTerm]);
+
   // A "Per Term" item's amount can only be shown as one concrete-term figure at a time. Once
   // "All Terms" fans a single row out across Term 1/2/3, that one row shows the per-term
   // breakdown instead of a single (necessarily ambiguous) figure.
@@ -386,7 +402,14 @@ const FeeStructureSetupPage = () => {
       .flatMap((grade) => targetTerms.map((term) => ({ grade, term, lines: defaultLines(grade, term) })))
       .filter((combo) => combo.lines.some((line) => line.enabled))
       .filter((combo) => !pendingMap[combo.grade]?.[combo.term])
-      .filter((combo) => JSON.stringify(combo.lines) !== JSON.stringify(approvedLines(combo.grade, combo.term)));
+      // Only diff against what's live when this combo actually has an approved baseline —
+      // approvedLines() falls back to defaultLines() when there's none, which would otherwise
+      // always equal combo.lines and silently drop every never-approved combo (e.g. a first-time
+      // "All Grades × All Terms" setup where nothing has been approved anywhere yet).
+      .filter((combo) => {
+        const hasBaseline = Boolean(liveMap[combo.grade]?.[combo.term]?.length);
+        return !hasBaseline || JSON.stringify(combo.lines) !== JSON.stringify(approvedLines(combo.grade, combo.term));
+      });
   }, [isAllScope, targetGrades, targetTerms, feeItems, pendingMap, liveMap]);
   const bulkGrandTotal = bulkCombos.reduce((sum, combo) => sum + combo.lines.filter((l) => l.enabled).reduce((s, l) => s + (Number(l.amount) || 0), 0), 0);
   // isDirty alone doesn't mean much in "all" scope (it just means something is selected, not that
@@ -508,78 +531,8 @@ const FeeStructureSetupPage = () => {
   const filteredPendingTotal = filteredPending.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
   const filteredApprovedTotal = filteredApproved.reduce((sum, record) => sum + sumEnabled(record.lines), 0);
 
-  const escapeHtml = (value: unknown): string =>
-    String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
-
-  // Shared print chrome for every parent-facing fee document — a proper letterhead (logo, school
-  // name, registration/contact details pulled from School Setup) plus one shared stylesheet, so
-  // "Print" and "Print Full Year" always produce the same professional layout instead of each
-  // hand-rolling its own header.
-  const letterheadHtml = () => {
-    const addressLine = [schoolInfo.physicalAddress, schoolInfo.postalAddress, schoolInfo.county].filter(Boolean).map(escapeHtml).join(" · ");
-    const contactLine = [schoolInfo.phone, schoolInfo.email, schoolInfo.website].filter(Boolean).map(escapeHtml).join("  ·  ");
-    return `
-      <div class="letterhead">
-        ${schoolInfo.logoUrl ? `<img class="logo" src="${escapeHtml(schoolInfo.logoUrl)}" alt="School logo" />` : `<div class="logo logo-placeholder"></div>`}
-        <div class="school-block">
-          <div class="school-name">${escapeHtml(schoolInfo.name || "School Name")}</div>
-          ${schoolInfo.registrationNumber ? `<div class="school-reg">Reg. No. ${escapeHtml(schoolInfo.registrationNumber)}</div>` : ""}
-          ${addressLine ? `<div class="school-line">${addressLine}</div>` : ""}
-          ${contactLine ? `<div class="school-line">${contactLine}</div>` : ""}
-        </div>
-      </div>
-      <div class="letterhead-rule"></div>`;
-  };
-
-  const PRINT_STYLES = `
-    @page { size: A4; margin: 16mm 14mm; }
-    *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;padding:0;color:#1a1a1a;font-size:13px;line-height:1.4}
-    .letterhead{display:flex;align-items:center;gap:16px}
-    .logo{width:64px;height:64px;object-fit:contain;flex-shrink:0}
-    .logo-placeholder{width:64px;height:64px;flex-shrink:0}
-    .school-block{flex:1;text-align:center}
-    .school-name{font-size:22px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:#111}
-    .school-reg{font-size:11px;color:#666;margin-top:2px}
-    .school-line{font-size:11px;color:#555;margin-top:2px}
-    .letterhead-rule{height:3px;background:linear-gradient(90deg,#111 0%,#111 70%,#999 100%);margin:12px 0 18px}
-    .doc-title{text-align:center;margin-bottom:18px}
-    .doc-title h1{margin:0;font-size:16px;letter-spacing:1px;text-transform:uppercase;font-weight:700}
-    .doc-title h2{margin:4px 0 0;font-size:13px;color:#444;font-weight:600}
-    .meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 24px;font-size:11.5px;margin:0 0 20px;border:1px solid #ddd;background:#fafafa;padding:12px 14px;border-radius:6px}
-    .meta div span{color:#666;margin-right:6px}
-    .section{margin-bottom:20px}
-    .section-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;padding-bottom:4px;margin-bottom:8px}
-    .section-head>span:first-child{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px}
-    .section-meta{font-size:10.5px;color:#666}
-    .empty{font-size:12px;color:#888;font-style:italic;margin:0 0 8px}
-    table{width:100%;border-collapse:collapse;font-size:12.5px}
-    thead th{background:#111;color:#fff;padding:8px 10px;text-align:left;font-weight:600}
-    tbody td{padding:7px 10px;border-bottom:1px solid #e5e5e5}
-    tbody tr:nth-child(even){background:#f7f7f7}
-    tfoot td{font-weight:700;background:#f0f0f0;padding:8px 10px;border-top:2px solid #111}
-    .grand{margin-top:10px;padding:12px 16px;border:2px solid #111;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:800}
-    .note{margin-top:16px;font-size:11.5px;background:#fafafa;border:1px solid #ddd;border-radius:6px;padding:10px 12px}
-    .signatures{margin-top:40px;display:flex;justify-content:space-between;gap:40px}
-    .signatures .sig{flex:1;text-align:center}
-    .signatures .sig-line{border-top:1px solid #333;margin-bottom:6px;padding-top:6px;font-size:11px;color:#555}
-    .footer{margin-top:32px;padding-top:10px;border-top:1px solid #ddd;font-size:10px;color:#888;display:flex;justify-content:space-between}
-    @media print { .noprint{display:none} }
-  `;
-
-  const openPrintDocument = (title: string, bodyHtml: string) => {
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <title>${escapeHtml(title)}</title>
-      <style>${PRINT_STYLES}</style></head><body>
-      ${letterheadHtml()}
-      ${bodyHtml}
-      <div class="footer"><span>This is a system-generated fee statement — for billing queries contact the school finance office.</span><span>Printed ${new Date().toLocaleString()}</span></div>
-      <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
-      </body></html>`;
-    const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) { Swal.fire({ icon: "error", title: "Pop-up blocked", text: "Allow pop-ups to print the fee structure.", showConfirmButton: true }); return; }
-    w.document.open(); w.document.write(html); w.document.close();
-  };
+  const printFeeStructure = (title: string, bodyHtml: string) =>
+    openPrintDocument(title, bodyHtml, "This is a system-generated fee statement — for billing queries contact the school finance office.");
 
   const printApprovedStructure = (record: FeeStructureRecord) => {
     const enabled = record.lines.filter((l) => l.enabled);
@@ -616,7 +569,7 @@ const FeeStructureSetupPage = () => {
         <div class="sig"><div class="sig-line">Finance Office Stamp</div></div>
         <div class="sig"><div class="sig-line">Authorized Signature</div></div>
       </div>`;
-    openPrintDocument(`Fee Structure - ${record.grade} ${record.term} V${record.version}`, body);
+    printFeeStructure(`Fee Structure - ${record.grade} ${record.term} V${record.version}`, body);
   };
 
   // Latest approved record for a grade/term, regardless of academic year — same "most recent
@@ -627,13 +580,13 @@ const FeeStructureSetupPage = () => {
       .filter((record) => record.status === "Approved" && record.grade === grade && record.term === term)
       .sort((a, b) => new Date(b.reviewedAt ?? b.updatedAt).getTime() - new Date(a.reviewedAt ?? a.updatedAt).getTime())[0];
 
-  // Full-year printout for one grade: one section per term, each with its own table and subtotal,
-  // a "Not yet approved" placeholder for any term with no approved structure yet, and a grand
-  // total across whatever terms are available.
+  // Full-year printout for one grade: one section per term that actually has an approved
+  // structure, each with its own table and subtotal, plus a grand total across those terms.
+  // Terms with nothing approved yet are left out entirely rather than shown as a placeholder.
   const printGradeStatement = (grade: string) => {
     const sections = TERMS.map((term) => {
       const record = latestApprovedRecord(grade, term);
-      if (!record) return { term, record: undefined as FeeStructureRecord | undefined, rowsHtml: "", subtotal: 0 };
+      if (!record) return undefined;
       const enabled = record.lines.filter((l) => l.enabled);
       const rowsHtml = enabled.map((l) => {
         const item = feeItems.find((it) => it.id === l.itemId);
@@ -644,27 +597,23 @@ const FeeStructureSetupPage = () => {
         </tr>`;
       }).join("");
       return { term, record, rowsHtml, subtotal: sumEnabled(record.lines) };
-    });
+    }).filter((section): section is NonNullable<typeof section> => Boolean(section));
     const grandTotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
     const sectionsHtml = sections.map((section) => `
       <div class="section">
         <div class="section-head">
           <span>${escapeHtml(section.term)}</span>
-          ${section.record
-            ? `<span class="section-meta">Year ${section.record.academicYear} · V${section.record.version} · Approved ${section.record.reviewedAt ? fmtDate(section.record.reviewedAt) : "—"} by ${escapeHtml(section.record.approver ?? "—")}</span>`
-            : `<span class="section-meta">Not yet approved</span>`}
+          <span class="section-meta">Year ${section.record.academicYear} · V${section.record.version} · Approved ${section.record.reviewedAt ? fmtDate(section.record.reviewedAt) : "—"} by ${escapeHtml(section.record.approver ?? "—")}</span>
         </div>
-        ${section.record
-          ? `<table>
-              <thead><tr><th>Fee Item</th><th style="text-align:right">Amount (KES)</th></tr></thead>
-              <tbody>${section.rowsHtml}</tbody>
-              <tfoot><tr><td>Subtotal</td><td style="text-align:right">KES ${section.subtotal.toLocaleString()}</td></tr></tfoot>
-            </table>`
-          : `<p class="empty">No approved fee structure for ${escapeHtml(grade)} · ${escapeHtml(section.term)} yet.</p>`}
+        <table>
+          <thead><tr><th>Fee Item</th><th style="text-align:right">Amount (KES)</th></tr></thead>
+          <tbody>${section.rowsHtml}</tbody>
+          <tfoot><tr><td>Subtotal</td><td style="text-align:right">KES ${section.subtotal.toLocaleString()}</td></tr></tfoot>
+        </table>
       </div>`).join("");
     const body = `
       <div class="doc-title">
-        <h1>Full Year Fee Statement</h1>
+        <h1>Full Year Fee Structure</h1>
         <h2>${escapeHtml(grade)} · Term 1, Term 2, Term 3 &amp; Full Year fees combined</h2>
       </div>
       ${sectionsHtml}
@@ -673,7 +622,7 @@ const FeeStructureSetupPage = () => {
         <div class="sig"><div class="sig-line">Finance Office Stamp</div></div>
         <div class="sig"><div class="sig-line">Authorized Signature</div></div>
       </div>`;
-    openPrintDocument(`Fee Structure - ${grade} - Full Year`, body);
+    printFeeStructure(`Fee Structure - ${grade} - Full Year`, body);
   };
 
   const diffLines = (base: GradeStatementLine[], next: GradeStatementLine[]) => {
@@ -1080,7 +1029,7 @@ const FeeStructureSetupPage = () => {
                   ? "Approver access"
                   : "View-only access"}
           </div>
-          <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4" /> Add Fee Item</Button>
+          {isMaker && <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4" /> Add Fee Item</Button>}
         </div>
       </div>
 
@@ -1165,6 +1114,13 @@ const FeeStructureSetupPage = () => {
                 <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
                   {selectedGrade} · {selectedTerm} already has a fee structure pending approval — submitted by {pendingRecord.maker} on {fmtDate(pendingRecord.submittedAt)}, total KES {sumEnabled(pendingRecord.lines).toLocaleString()}.
                   {" "}Shown below for reference only until the Approver approves or rejects it. It'll come back here to resubmit only if rejected.
+                </div>
+              )}
+              {excludedByCycle.length > 0 && (
+                <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-sm">
+                  {excludedByCycle.length} active fee item{excludedByCycle.length === 1 ? "" : "s"} for {selectedGrade} not shown below, because {excludedByCycle.length === 1 ? "its" : "their"} billing cycle doesn't match {selectedTerm}:
+                  {" "}{excludedByCycle.map((item) => `${item.name} (${item.term})`).join(", ")}.
+                  {" "}A "Per Term" item only ever fits Term 1/2/3; a "Per Year"/"One-time" item only ever fits Full Year — change the cycle in Master Fee Items below if this should be billed here instead.
                 </div>
               )}
               {isAllScope && (
@@ -1286,12 +1242,14 @@ const FeeStructureSetupPage = () => {
                               item.amount.toLocaleString()
                             )}
                           </TableCell>
-                          <TableCell className="text-center"><Switch checked={item.active} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
+                          <TableCell className="text-center"><Switch checked={item.active} disabled={!isMaker} onCheckedChange={() => toggleActive(item.id)} /></TableCell>
                           <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                            </div>
+                            {isMaker && (
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                              </div>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

@@ -27,6 +27,8 @@ export interface Student {
   birthCertificateNumber: string;
   address: string;
   medicalNotes: string;
+  /** Date the student actually started attending — drives fee billing eligibility (no charges before this date). */
+  joinDate?: string;
   documents: StudentDocument[];
 }
 
@@ -77,7 +79,7 @@ interface StudentContextType {
   loadingStudents: boolean;
   loadingApplications: boolean;
   addApplication: (app: any) => Promise<void>;
-  updateApplicationStage: (uuid: string, stage: string) => Promise<void>;
+  updateApplicationStage: (uuid: string, stage: string, joinDate?: string) => Promise<void>;
   updateStudent: (uuid: string, data: Partial<Student>) => Promise<void>;
   updateStudentStatus: (uuid: string, status: string) => Promise<void>;
   deleteStudent: (uuid: string) => Promise<void>;
@@ -153,8 +155,8 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
     setApplications(prev => Array.isArray(prev) ? [created, ...prev] : [created]);
   };
 
-  const updateApplicationStage = async (uuid: string, stage: string) => {
-    const updated = await AdmissionApi.updateStage(uuid, stage);
+  const updateApplicationStage = async (uuid: string, stage: string, joinDate?: string) => {
+    const updated = await AdmissionApi.updateStage(uuid, stage, joinDate);
     setApplications(prev => prev.map(a => a.uuid === uuid ? updated : a));
     if (stage === "ENROLLED") {
       await refreshStudents();
@@ -171,6 +173,7 @@ export const StudentProvider = ({ children }: { children: ReactNode }) => {
       birthCertificateNumber: data.birthCertificateNumber ?? s.birthCertificateNumber,
       grade: data.grade ?? s.grade,
       stream: data.stream ?? s.stream,
+      joinDate: data.joinDate ?? s.joinDate,
       boarderStatus: data.boarderStatus ?? s.boarderStatus,
       parentName: data.parentName ?? s.parentName,
       parentPhone: data.parentPhone ?? s.parentPhone,

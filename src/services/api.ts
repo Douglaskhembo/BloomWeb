@@ -203,10 +203,6 @@ export const StaffApi = {
     const res = await staffAPI.get('/me');
     return unwrap(res);
   },
-  updateMyProfile: async (data: any): Promise<any> => {
-    const res = await staffAPI.patch('/me', data);
-    return unwrap(res);
-  },
 };
 
 export const AdmissionApi = {
@@ -218,8 +214,8 @@ export const AdmissionApi = {
     const res = await studentAPI.post('/admissions', data);
     return unwrap(res);
   },
-  updateStage: async (uuid: string, stage: string): Promise<any> => {
-    const res = await studentAPI.patch(`/admissions/${uuid}/stage`, null, { params: { stage } });
+  updateStage: async (uuid: string, stage: string, joinDate?: string): Promise<any> => {
+    const res = await studentAPI.patch(`/admissions/${uuid}/stage`, null, { params: { stage, joinDate } });
     return unwrap(res);
   },
   delete: async (uuid: string): Promise<void> => {
@@ -831,14 +827,26 @@ export const TimetableApi = {
 };
 
 export const AssessmentApi = {
+  getSubjectPerformance: async (term: string, year: number): Promise<any> => {
+    try { return unwrap(await assessmentAPI.get('/subject-performance', { params: { term, year } })); } catch { return null; }
+  },
   getMyClasses: async (teacherUuid: string): Promise<any[]> => {
     try { return unwrapList(await assessmentAPI.get('/my-classes', { params: { teacherUuid } })); } catch { return []; }
+  },
+  /** Every (grade, stream, subject) taught anywhere, with the teaching teacher attached — admin
+   *  browsing any class, or a class teacher's homeroom across every subject. */
+  getAllClasses: async (): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get('/all-classes')); } catch { return []; }
   },
   getRoster: async (gradeLevelUuid: string, stream: string): Promise<any[]> => {
     try { return unwrapList(await assessmentAPI.get('/roster', { params: { gradeLevelUuid, stream } })); } catch { return []; }
   },
   getMine: async (teacherUuid: string, gradeLevelUuid: string, stream: string, subjectUuid: string): Promise<any[]> => {
     try { return unwrapList(await assessmentAPI.get('', { params: { teacherUuid, gradeLevelUuid, stream, subjectUuid } })); } catch { return []; }
+  },
+  /** Every assessment for a class+subject regardless of creator. */
+  getForClass: async (gradeLevelUuid: string, stream: string, subjectUuid: string): Promise<any[]> => {
+    try { return unwrapList(await assessmentAPI.get('/for-class', { params: { gradeLevelUuid, stream, subjectUuid } })); } catch { return []; }
   },
   create: async (data: any): Promise<any> => unwrap(await assessmentAPI.post('', data)),
   getMarks: async (assessmentUuid: string): Promise<any[]> => {

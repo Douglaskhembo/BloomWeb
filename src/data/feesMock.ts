@@ -10,6 +10,8 @@ export interface Student {
   stream: string;
   parent: string;
   phone: string;
+  /** Date the student actually started attending — fee billing never charges a term before this. */
+  joinDate?: string;
   expected: number;
 }
 
@@ -25,6 +27,7 @@ export interface Payment {
   amount: number;
   method: PaymentMethod;
   reference: string;
+  receiptNumber?: string;
   date: string; // ISO
   source?: PaymentSource;
   verificationStatus?: VerificationStatus;
@@ -44,8 +47,6 @@ export const GRADES = [
 
 export const STREAMS = ["North", "South", "East", "West"];
 export const METHODS: PaymentMethod[] = ["M-Pesa", "Bank", "Cash", "Card", "Cheque"];
-export const ROLES = ["Administrator", "Bursar/Accounts", "Principal", "Auditor"] as const;
-export type Role = (typeof ROLES)[number];
 
 const FIRST = ["Brian","Faith","Kevin","Mercy","James","Lucy","Samuel","Diana","Peter","Grace","Anne","John","Mary","Daniel","Esther","Paul","Ruth","Joseph","Hannah","Mark","Naomi","Caleb","Tabitha","Eric","Joyce","Victor","Beatrice","Allan","Cynthia","Dennis"];
 const LAST = ["Kamau","Wanjiru","Ochieng","Akinyi","Mwangi","Chebet","Kiprop","Nyambura","Otieno","Wambui","Mutiso","Kariuki","Njoroge","Atieno","Mutua","Wafula","Cherono","Onyango","Maina","Kibet"];

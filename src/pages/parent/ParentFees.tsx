@@ -6,20 +6,47 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { DollarSign, CreditCard, Smartphone } from "lucide-react";
+import { DollarSign, CreditCard, Smartphone, Printer } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
 import { useAuth } from "@/context/AuthContext";
 import { FeeApi, PaymentApi, StudentApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
-import { toStudent, toPayment, isConfirmed } from "@/utils/feePayment";
+import { toStudent, toPayment, isConfirmed, computeStudentAgg, feeStandingHtml } from "@/utils/feePayment";
 import type { Payment, Student } from "@/data/feesMock";
 import Pagination from "@/utils/Pagination";
+import { usePrintDocument } from "@/hooks/usePrintDocument";
 
 const fmt = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 
+const fmtDT = (iso: string) => new Date(iso).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" });
+
 const ParentFees = () => {
   const { user } = useAuth();
+  const { escapeHtml, openPrintDocument } = usePrintDocument();
+
+  const printReceipt = (p: Payment, s: Pick<Student, "name" | "admissionNo" | "grade" | "stream" | "parent" | "phone">, balance?: number, credit?: number) => {
+    const body = `
+      <div class="doc-title">
+        <h1>Payment Receipt</h1>
+        <h2>Receipt No. ${escapeHtml(p.receiptNumber || p.reference)}</h2>
+      </div>
+      <div class="meta">
+        <div><span>Date:</span>${escapeHtml(fmtDT(p.date))}</div>
+        <div><span>Method:</span>${escapeHtml(p.method)}</div>
+        <div><span>Student:</span>${escapeHtml(s.name)}</div>
+        <div><span>Admission No.:</span>${escapeHtml(s.admissionNo)}</div>
+        <div><span>Grade:</span>${escapeHtml(s.grade)} ${escapeHtml(s.stream)}</div>
+        <div><span>Reference:</span>${escapeHtml(p.reference)}</div>
+      </div>
+      <div class="grand"><span>Amount Received</span><span>KES ${p.amount.toLocaleString()}</span></div>
+      ${feeStandingHtml(balance, credit)}
+      <div class="signatures">
+        <div class="sig"><div class="sig-line">School Finance Office</div></div>
+        <div class="sig"><div class="sig-line">Parent/Guardian Copy</div></div>
+      </div>`;
+    openPrintDocument(`Receipt - ${p.receiptNumber || p.reference}`, body, "This is an official payment receipt — retain for your records.");
+  };
 
   const [children, setChildren] = useState<Student[]>([]);
   const [selectedChild, setSelectedChild] = useState<string>("");
@@ -78,6 +105,13 @@ const ParentFees = () => {
     const balance = Math.max(0, expected - paid);
     return { expected, paid, balance };
   }, [visibleChildren, visiblePayments]);
+
+  // Per-child balance/credit for receipts — a family with more than one child must never have one
+  // child's overpayment silently offset another's arrears on a receipt naming a specific student.
+  const childAgg = useMemo(
+    () => computeStudentAgg(children, payments.filter(isConfirmed)),
+    [children, payments],
+  );
 
   const openPay = () => {
     setForm({
@@ -174,13 +208,14 @@ const ParentFees = () => {
                 <TableHead>Method</TableHead>
                 <TableHead>Reference</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
               ) : pagedPayments.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No payments recorded yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No payments recorded yet.</TableCell></TableRow>
               ) : pagedPayments.map((p) => {
                 const c = children.find((x) => x.id === p.studentId);
                 return (
@@ -197,6 +232,16 @@ const ParentFees = () => {
                       >
                         {p.verificationStatus ?? "Confirmed"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {isConfirmed(p) && c && (
+                        <Button variant="ghost" size="sm" title="Print receipt" onClick={() => {
+                          const agg = childAgg.find((x) => x.id === c.id);
+                          printReceipt(p, c, agg?.balance, agg?.credit);
+                        }}>
+                          <Printer className="w-4 h-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

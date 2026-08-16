@@ -12,7 +12,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import Pagination from "@/utils/Pagination";
 import { useAuth } from "@/context/AuthContext";
-import { StaffApi, SchoolApi, TermReportApi } from "@/services/api";
+import { StaffApi, SchoolApi, TermReportApi, AcademicCalendarApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 
 interface TermReportsPageProps {
@@ -45,6 +45,15 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
   useEffect(() => {
     if (role === "admin") SchoolApi.getGradeLevels().then(setGradeLevels);
   }, [role]);
+
+  // Default to the actual current term/year (Academic Calendar) rather than always opening on
+  // "Term 1" — a teacher/admin/parent checking reports mid-year shouldn't have to know to switch.
+  useEffect(() => {
+    AcademicCalendarApi.getCurrentTerm().then((current) => {
+      if (current.term) setTerm(current.term);
+      if (current.academicYear) setYear(String(current.academicYear));
+    });
+  }, []);
 
   useEffect(() => {
     if (role !== "teacher" || !user?.profileRef) return;
