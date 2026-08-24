@@ -9,14 +9,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
-import { Bus, MapPin, Users, AlertTriangle, Plus, UserPlus, Trash2, Search, Edit, X } from "lucide-react";
+import { Bus, MapPin, Users, AlertTriangle, Plus, UserPlus, Trash2, Search, Edit, X, ClipboardCheck } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
-import { TransportApi, StudentApi, StaffApi } from "@/services/api";
+import { TransportApi, TransportAttendanceApi, StudentApi, StaffApi } from "@/services/api";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import AttendanceChecklist, { ChecklistRow, StatusOption } from "@/components/attendance/AttendanceChecklist";
 
 const EMPTY_FORM = { name: "", driverUuid: "", vehicle: "", capacity: "", fare: "", status: "ACTIVE", pickupPoints: [] as string[] };
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const BOARDING_STATUS_OPTIONS: StatusOption[] = [
+  { value: "BOARDED", label: "Boarded", activeClassName: "bg-green-600 text-white hover:bg-green-600" },
+  { value: "ABSENT", label: "Absent", activeClassName: "bg-red-600 text-white hover:bg-red-600" },
+];
 
 const TransportPage = () => {
   const [routes, setRoutes] = useState<any[]>([]);
@@ -40,6 +46,50 @@ const TransportPage = () => {
   const [routesPerPage, setRoutesPerPage] = useState(10);
   const [enrollmentsPage, setEnrollmentsPage] = useState(1);
   const [enrollmentsPerPage, setEnrollmentsPerPage] = useState(10);
+
+  const [attRouteUuid, setAttRouteUuid] = useState("");
+  const [attDate, setAttDate] = useState(todayISO());
+  const [attDirection, setAttDirection] = useState<"PICKUP" | "DROP_OFF">("PICKUP");
+  const [attRegister, setAttRegister] = useState<ChecklistRow[]>([]);
+  const [attLoading, setAttLoading] = useState(false);
+  const [attSaving, setAttSaving] = useState(false);
+
+  const loadAttRegister = async () => {
+    if (!attRouteUuid) { setAttRegister([]); return; }
+    setAttLoading(true);
+    try {
+      const data = await TransportAttendanceApi.getRegister({ routeUuid: attRouteUuid, date: attDate, direction: attDirection });
+      setAttRegister(data);
+    } finally {
+      setAttLoading(false);
+    }
+  };
+
+  useEffect(() => { loadAttRegister(); }, [attRouteUuid, attDate, attDirection]);
+
+  const setAttRowStatus = (studentUuid: string, status: string) => {
+    setAttRegister((rs) => rs.map((r) => (r.studentUuid === studentUuid ? { ...r, status } : r)));
+  };
+  const attMarkedCount = attRegister.filter((r) => r.status).length;
+
+  const handleSaveAttendance = async () => {
+    if (attSaving) return;
+    const entries = attRegister.filter((r) => r.status).map((r) => ({ studentUuid: r.studentUuid, status: r.status as "BOARDED" | "ABSENT" }));
+    if (entries.length === 0) {
+      Swal.fire({ icon: "warning", title: "Nothing to save", text: "Mark at least one student before saving.", showConfirmButton: true });
+      return;
+    }
+    setAttSaving(true);
+    try {
+      await TransportAttendanceApi.markBulk({ routeUuid: attRouteUuid, date: attDate, direction: attDirection, entries });
+      Swal.fire({ icon: "success", title: "Attendance saved", timer: 1500, showConfirmButton: false });
+      await loadAttRegister();
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "Error", text: getBackendErrorMessage(e, "Failed to save attendance"), showConfirmButton: true });
+    } finally {
+      setAttSaving(false);
+    }
+  };
 
   const loadAll = () => {
     TransportApi.getRoutes().then(d => setRoutes(Array.isArray(d) ? d : []));
@@ -164,6 +214,7 @@ const TransportPage = () => {
         <TabsList>
           <TabsTrigger value="routes">Routes</TabsTrigger>
           <TabsTrigger value="enrollment">Student Enrollment</TabsTrigger>
+          <TabsTrigger value="attendance">Attendance</TabsTrigger>
         </TabsList>
 
         {/* Routes Tab */}
@@ -283,6 +334,64 @@ const TransportPage = () => {
               </Table>
               <Pagination currentPage={enrollmentsPage} totalPages={totalEnrollmentsPages} onPageChange={setEnrollmentsPage}
                 itemsPerPage={enrollmentsPerPage} onItemsPerPageChange={v => { setEnrollmentsPerPage(v); setEnrollmentsPage(1); }} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Attendance Tab */}
+        <TabsContent value="attendance">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><ClipboardCheck className="w-4 h-4" /> Bus Attendance</CardTitle>
+              <CardDescription>Record student boarding at pickup and drop-off — no driver app needed, mark the whole route at once</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Route</Label>
+                  <Select value={attRouteUuid} onValueChange={setAttRouteUuid}>
+                    <SelectTrigger><SelectValue placeholder="Select route" /></SelectTrigger>
+                    <SelectContent>
+                      {routes.map(r => <SelectItem key={r.uuid} value={r.uuid}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Date</Label>
+                  <Input type="date" value={attDate} onChange={(e) => setAttDate(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Direction</Label>
+                  <Select value={attDirection} onValueChange={(v) => setAttDirection(v as "PICKUP" | "DROP_OFF")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PICKUP">Morning Pickup</SelectItem>
+                      <SelectItem value="DROP_OFF">Afternoon Drop-off</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {!attRouteUuid ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Select a route to load its boarding register.</p>
+              ) : attLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">{attMarkedCount} of {attRegister.length} marked</p>
+                  <AttendanceChecklist
+                    rows={attRegister}
+                    statusOptions={BOARDING_STATUS_OPTIONS}
+                    onStatusChange={setAttRowStatus}
+                    extraColumnLabel="Pickup Point"
+                    extraColumn={(row) => (row as any).pickupPoint ?? "—"}
+                  />
+                  <div className="flex justify-end">
+                    <Button onClick={handleSaveAttendance} disabled={attSaving || attLoading}>
+                      {attSaving ? "Saving…" : "Save Attendance"}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

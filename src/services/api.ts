@@ -57,6 +57,7 @@ const bioCaptureAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/biom
 const deviceAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/devices`, headers: { 'Content-Type': 'application/json' } }));
 const classTeacherAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/class-teachers`, headers: { 'Content-Type': 'application/json' } }));
 const attendanceReportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/reports`, headers: { 'Content-Type': 'application/json' } }));
+const dailyAttendanceAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/daily`, headers: { 'Content-Type': 'application/json' } }));
 const payrollAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payroll`,    headers: { 'Content-Type': 'application/json' } }));
 const commAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/communication`, headers: { 'Content-Type': 'application/json' } }));
 const timetablePeriodAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/periods`, headers: { 'Content-Type': 'application/json' } }));
@@ -249,6 +250,7 @@ export const StudentApi = {
 };
 
 const transportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/transport`, headers: { 'Content-Type': 'application/json' } }));
+const transportAttendanceAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/transport/attendance`, headers: { 'Content-Type': 'application/json' } }));
 
 export const TransportApi = {
   getRoutes: async (): Promise<any[]> => {
@@ -281,6 +283,14 @@ export const TransportApi = {
   unenrollStudent: async (uuid: string): Promise<void> => {
     await transportAPI.delete(`/enrollments/${uuid}`);
   },
+};
+
+export const TransportAttendanceApi = {
+  getRegister: async (params: { routeUuid: string; date: string; direction: "PICKUP" | "DROP_OFF" }): Promise<any[]> => {
+    try { return unwrapList(await transportAttendanceAPI.get('/register', { params })); } catch { return []; }
+  },
+  markBulk: async (data: { routeUuid: string; date: string; direction: "PICKUP" | "DROP_OFF"; entries: { studentUuid: string; status: "BOARDED" | "ABSENT" }[] }): Promise<any> =>
+    unwrap(await transportAttendanceAPI.post('/mark', data)),
 };
 
 export const SchoolApi = {
@@ -582,6 +592,18 @@ export const FeeApi = {
   },
 };
 
+export const AdHocChargeApi = {
+  getAll: async (admissionNumber?: string): Promise<any[]> => {
+    try { return unwrapList(await feesAPI.get('/adhoc-charges', { params: admissionNumber ? { admissionNumber } : {} })); } catch { return []; }
+  },
+  allocate: async (data: {
+    studentUuid: string; itemId?: number; itemName?: string; category?: string;
+    amount: number; academicYear: number; term: string; dueDate?: string; note?: string;
+  }): Promise<any> => unwrap(await feesAPI.post('/adhoc-charges', data)),
+  void: async (uuid: string, reason: string): Promise<any> =>
+    unwrap(await feesAPI.patch(`/adhoc-charges/${uuid}/void`, { reason })),
+};
+
 export const SubjectApi = {
   getAll: async (): Promise<any[]> => {
     try {
@@ -801,6 +823,17 @@ export const AttendanceReportApi = {
   getSummary: async (params: { from: string; to: string; grade?: string; stream?: string }): Promise<any[]> => {
     try { return unwrapList(await attendanceReportAPI.get('/summary', { params })); } catch { return []; }
   },
+};
+
+export const DailyAttendanceApi = {
+  getRegister: async (params: { teacherUuid: string; date: string }): Promise<any[]> => {
+    try { return unwrapList(await dailyAttendanceAPI.get('/register', { params })); } catch { return []; }
+  },
+  getRegisterForClass: async (params: { grade: string; stream?: string; date: string }): Promise<any[]> => {
+    try { return unwrapList(await dailyAttendanceAPI.get('/register-for-class', { params })); } catch { return []; }
+  },
+  markBulk: async (data: { date: string; entries: { studentUuid: string; status: string; remarks?: string }[] }): Promise<any> =>
+    unwrap(await dailyAttendanceAPI.post('/mark', data)),
 };
 
 export const TimetableApi = {

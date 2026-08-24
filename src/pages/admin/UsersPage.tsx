@@ -49,6 +49,7 @@ const UsersPage = () => {
 
   // add/edit modal
   const [modalOpen, setModalOpen]     = useState(false);
+  const [saving, setSaving]           = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [allRoles, setAllRoles]       = useState<any[]>([]);
   const [form, setForm] = useState({
@@ -222,21 +223,26 @@ const UsersPage = () => {
   };
 
   const handleSave = async () => {
+    if (saving) return;
+
     if (editingUser) {
       if (!form.userName || !form.firstName || !form.email) {
         Swal.fire("Validation", "Username, first name and email are required.", "warning"); return;
       }
+      setSaving(true);
       try {
         await UserApi.update(editingUser.userUuid, form);
         Swal.fire({ icon: "success", title: "User updated", timer: 1500, showConfirmButton: false });
         setModalOpen(false); fetchUsers();
       } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+      finally { setSaving(false); }
       return;
     }
 
     if (!onboardForm.staffUuid) { Swal.fire("Validation", "Select a staff member to onboard.", "warning"); return; }
     if (!onboardForm.userName) { Swal.fire("Validation", "Username is required.", "warning"); return; }
     if (onboardForm.roleUuids.length === 0) { Swal.fire("Validation", "Select a role.", "warning"); return; }
+    setSaving(true);
     try {
       const result = await UserApi.onboardStaff(onboardForm);
       setModalOpen(false); fetchUsers();
@@ -251,6 +257,7 @@ const UsersPage = () => {
           : "Account created.",
       });
     } catch (err) { Swal.fire("Error", getBackendErrorMessage(err), "error"); }
+    finally { setSaving(false); }
   };
 
   // ── pagination helpers ────────────────────────────────────────────────────
@@ -572,8 +579,10 @@ const UsersPage = () => {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave}>{editingUser ? "Save" : "Onboard"}</Button>
+            <Button variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : editingUser ? "Save" : "Onboard"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

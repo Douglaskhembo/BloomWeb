@@ -8,15 +8,24 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Search, Download, Fingerprint, Percent } from "lucide-react";
-import { AttendanceReportApi } from "@/services/api";
+import { Search, Download, Fingerprint, Percent, ClipboardCheck } from "lucide-react";
+import { AttendanceReportApi, DailyAttendanceApi } from "@/services/api";
 import { downloadAttendanceReport } from "@/lib/attendanceExport";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
 import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
+import AttendanceChecklist, { ChecklistRow, StatusOption } from "@/components/attendance/AttendanceChecklist";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
+
+const STATUS_OPTIONS: StatusOption[] = [
+  { value: "PRESENT", label: "Present", activeClassName: "bg-green-600 text-white hover:bg-green-600" },
+  { value: "ABSENT", label: "Absent", activeClassName: "bg-red-600 text-white hover:bg-red-600" },
+  { value: "LATE", label: "Late", activeClassName: "bg-amber-500 text-white hover:bg-amber-500" },
+  { value: "EXCUSED", label: "Excused", activeClassName: "bg-blue-600 text-white hover:bg-blue-600" },
+];
 
 const AttendancePage = () => {
   const [tab, setTab] = useState<"students" | "staff">("students");
@@ -37,6 +46,53 @@ const AttendancePage = () => {
   const [downloadFrom, setDownloadFrom] = useState(todayISO());
   const [downloadTo, setDownloadTo] = useState(todayISO());
   const [downloadFormat, setDownloadFormat] = useState<"csv" | "excel" | "pdf">("pdf");
+
+  const [markGrade, setMarkGrade] = useState("");
+  const [markStream, setMarkStream] = useState("");
+  const [markDate, setMarkDate] = useState(todayISO());
+  const [register, setRegister] = useState<ChecklistRow[]>([]);
+  const [registerLoading, setRegisterLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadRegister = async () => {
+    if (!markGrade) { setRegister([]); return; }
+    setRegisterLoading(true);
+    try {
+      setRegister(await DailyAttendanceApi.getRegisterForClass({ grade: markGrade, stream: markStream || undefined, date: markDate }));
+    } finally {
+      setRegisterLoading(false);
+    }
+  };
+
+  useEffect(() => { loadRegister(); }, [markGrade, markStream, markDate]);
+
+  const setRowStatus = (studentUuid: string, status: string) => {
+    setRegister((rs) => rs.map((r) => (r.studentUuid === studentUuid ? { ...r, status } : r)));
+  };
+  const setRowRemarks = (studentUuid: string, remarks: string) => {
+    setRegister((rs) => rs.map((r) => (r.studentUuid === studentUuid ? { ...r, remarks } : r)));
+  };
+  const markedCount = register.filter((r) => r.status).length;
+
+  const handleSaveAttendance = async () => {
+    if (saving) return;
+    const entries = register.filter((r) => r.status).map((r) => ({ studentUuid: r.studentUuid, status: r.status!, remarks: r.remarks }));
+    if (entries.length === 0) {
+      Swal.fire("Nothing to save", "Mark at least one student before saving.", "warning");
+      return;
+    }
+    setSaving(true);
+    try {
+      await DailyAttendanceApi.markBulk({ date: markDate, entries });
+      Swal.fire({ icon: "success", title: "Attendance saved", timer: 1500, showConfirmButton: false });
+      await loadRegister();
+      if (tab === "students") search();
+    } catch (err) {
+      Swal.fire("Error", getBackendErrorMessage(err), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const search = async () => {
     setLoading(true);
@@ -120,6 +176,37 @@ const AttendancePage = () => {
         </CardContent>
       </Card>
 
+      {tab === "students" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2"><ClipboardCheck className="w-4 h-4" /> Mark Attendance (Admin Override)</CardTitle>
+            <p className="text-xs text-muted-foreground">Mark or correct any class's register — normally the class teacher does this from their own portal.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Grade</Label><Input value={markGrade} onChange={(e) => setMarkGrade(e.target.value)} placeholder="e.g. Grade 5" /></div>
+              <div className="space-y-1"><Label className="text-xs">Stream</Label><Input value={markStream} onChange={(e) => setMarkStream(e.target.value)} placeholder="e.g. A" /></div>
+              <div className="space-y-1"><Label className="text-xs">Date</Label><Input type="date" value={markDate} onChange={(e) => setMarkDate(e.target.value)} /></div>
+            </div>
+            {!markGrade ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Enter a grade to load its register.</p>
+            ) : registerLoading ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">{markedCount} of {register.length} marked for this date</p>
+                <AttendanceChecklist rows={register} statusOptions={STATUS_OPTIONS} onStatusChange={setRowStatus} onRemarksChange={setRowRemarks} showRemarks />
+                <div className="flex justify-end">
+                  <Button onClick={handleSaveAttendance} disabled={saving || registerLoading}>
+                    {saving ? "Saving…" : "Save Attendance"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {tab === "students" && summary.length > 0 && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -185,11 +272,12 @@ const AttendancePage = () => {
                   <TableHead>{tab === "students" ? "Exit" : "Clock Out"}</TableHead>
                   <TableHead>Device</TableHead>
                   <TableHead>Status</TableHead>
+                  {tab === "students" && <TableHead>Source</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
+                  <TableRow><TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
                     <Fingerprint className="w-6 h-6 mx-auto mb-2 opacity-40" /> No attendance records for this range.
                   </TableCell></TableRow>
                 ) : pagedRows.map((r) => (
@@ -200,7 +288,12 @@ const AttendancePage = () => {
                     <TableCell className="text-xs">{fmtTime(r.clockInOrEntry)}</TableCell>
                     <TableCell className="text-xs">{fmtTime(r.clockOutOrExit)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{r.deviceId ?? "—"}</TableCell>
-                    <TableCell><Badge variant={r.status === "LATE" ? "destructive" : "default"} className="text-[10px]">{r.status}</Badge></TableCell>
+                    <TableCell><Badge variant={r.status === "LATE" || r.status === "ABSENT" ? "destructive" : "default"} className="text-[10px]">{r.status}</Badge></TableCell>
+                    {tab === "students" && (
+                      <TableCell className="text-xs text-muted-foreground">
+                        {r.source === "MANUAL" ? `Manual${r.markedBy ? ` · ${r.markedBy}` : ""}` : "Biometric"}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

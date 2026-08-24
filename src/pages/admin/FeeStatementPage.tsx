@@ -7,11 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
-import { Download, Printer, FileText, RotateCcw } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Download, Printer, FileText, RotateCcw, Plus, Ban } from "lucide-react";
 import Swal from "sweetalert2";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { FeeApi, StudentApi } from "@/services/api";
+import { FeeApi, StudentApi, AdHocChargeApi, AcademicCalendarApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { toStudent, toPayment, expectedForGrade } from "@/utils/feePayment";
 import type { Payment, Student } from "@/data/feesMock";
@@ -60,21 +62,34 @@ const FeeStatementPage = () => {
   const [filterTerm, setFilterTerm] = useState<string>("all");
   const [filterYear, setFilterYear] = useState<string>("all");
 
+  // Ad-hoc (one-off, per-student) charge allocation
+  const [adHocCharges, setAdHocCharges] = useState<any[]>([]);
+  const [termPeriods, setTermPeriods] = useState<any[]>([]);
+  const [studentUuidByAdmission, setStudentUuidByAdmission] = useState<Record<string, string>>({});
+  const [allocateOpen, setAllocateOpen] = useState(false);
+  const [allocateSaving, setAllocateSaving] = useState(false);
+  const [allocateForm, setAllocateForm] = useState({
+    itemId: "custom", amount: "", academicYear: "", term: "", dueDate: "", note: "",
+  });
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [rawStudents, items, rawStructures, rawCharges] = await Promise.all([
+        const [rawStudents, items, rawStructures, rawCharges, rawTermPeriods] = await Promise.all([
           StudentApi.getAll(),
           FeeApi.getItems(),
           FeeApi.getStructures(),
           FeeApi.getCurrentCharges(),
+          AcademicCalendarApi.getTermPeriods(),
         ]);
         const mapped = rawStudents.map((s: any) => toStudent(s, rawCharges, items));
         setStudents(mapped);
         setFeeItems(items);
         setStructures(rawStructures);
         setCharges(rawCharges);
+        setTermPeriods(rawTermPeriods);
+        setStudentUuidByAdmission(Object.fromEntries(rawStudents.map((s: any) => [s.admissionNumber, s.uuid])));
         if (mapped.length > 0) setSelectedId(mapped[0].id);
       } catch (err) {
         Swal.fire({
@@ -113,7 +128,90 @@ const FeeStatementPage = () => {
     return () => { cancelled = true; };
   }, [selectedId]);
 
+  const loadAdHocCharges = async () => {
+    if (!selectedId) { setAdHocCharges([]); return; }
+    setAdHocCharges(await AdHocChargeApi.getAll(selectedId));
+  };
+  useEffect(() => { loadAdHocCharges(); }, [selectedId]);
+
   const student = useMemo(() => students.find((s) => s.id === selectedId) ?? null, [students, selectedId]);
+
+  // Only already-started periods can receive an ad-hoc charge (mirrors the backend's own
+  // periodHasStarted gate) so a doomed request never reaches the server.
+  const startedTermPeriods = useMemo(
+    () => termPeriods.filter((tp) => new Date(tp.startDate).getTime() <= Date.now()),
+    [termPeriods],
+  );
+
+  const openAllocate = () => {
+    setAllocateForm({ itemId: "custom", amount: "", academicYear: "", term: "", dueDate: "", note: "" });
+    setAllocateOpen(true);
+  };
+
+  const handleAllocateItemChange = (itemId: string) => {
+    const item = feeItems.find((it) => String(it.id) === itemId);
+    setAllocateForm((f) => ({ ...f, itemId, amount: item ? String(item.amount) : f.amount }));
+  };
+
+  const handleAllocate = async () => {
+    if (allocateSaving || !student) return;
+    const item = allocateForm.itemId !== "custom" ? feeItems.find((it) => String(it.id) === allocateForm.itemId) : null;
+    if (!item && !allocateForm.note.trim()) {
+      Swal.fire("Validation", "Give this custom charge a name/description.", "warning");
+      return;
+    }
+    if (!allocateForm.academicYear || !allocateForm.term) {
+      Swal.fire("Validation", "Select the term to bill this into.", "warning");
+      return;
+    }
+    if (!allocateForm.amount || Number(allocateForm.amount) <= 0) {
+      Swal.fire("Validation", "Amount must be greater than zero.", "warning");
+      return;
+    }
+    if (!studentUuidByAdmission[student.id]) {
+      Swal.fire("Error", "Could not resolve this student's record — try reloading the page.", "error");
+      return;
+    }
+    setAllocateSaving(true);
+    try {
+      await AdHocChargeApi.allocate({
+        studentUuid: studentUuidByAdmission[student.id],
+        itemId: item ? Number(item.id) : undefined,
+        itemName: item ? undefined : allocateForm.note.trim(),
+        amount: Number(allocateForm.amount),
+        academicYear: Number(allocateForm.academicYear),
+        term: allocateForm.term,
+        dueDate: allocateForm.dueDate || undefined,
+        note: allocateForm.note.trim() || undefined,
+      });
+      Swal.fire({ icon: "success", title: "Charge allocated", timer: 1500, showConfirmButton: false });
+      setAllocateOpen(false);
+      await Promise.all([loadAdHocCharges(), FeeApi.getCurrentCharges().then(setCharges)]);
+    } catch (err) {
+      Swal.fire("Error", getBackendErrorMessage(err), "error");
+    } finally {
+      setAllocateSaving(false);
+    }
+  };
+
+  const handleVoidAdHoc = async (charge: any) => {
+    const { value: reason } = await Swal.fire({
+      title: "Void this charge?",
+      input: "text",
+      inputLabel: `${charge.itemName} — KES ${Number(charge.amount).toLocaleString()}`,
+      inputPlaceholder: "Reason for voiding",
+      showCancelButton: true,
+      inputValidator: (v) => (!v ? "A reason is required" : undefined),
+    });
+    if (!reason) return;
+    try {
+      await AdHocChargeApi.void(charge.uuid, reason);
+      Swal.fire({ icon: "success", title: "Charge voided", timer: 1500, showConfirmButton: false });
+      await Promise.all([loadAdHocCharges(), FeeApi.getCurrentCharges().then(setCharges)]);
+    } catch (err) {
+      Swal.fire("Error", getBackendErrorMessage(err), "error");
+    }
+  };
 
   // What THIS student is actually billed for the CURRENT term — sourced from their own persisted
   // StudentFeeCharge rows, not the raw grade-wide catalog. Those rows only ever exist for a period
@@ -190,11 +288,15 @@ const FeeStatementPage = () => {
       const amount = cs.reduce((a: number, c: any) => a + (Number(c.amount) || 0), 0);
       const term = s?.term ?? cs[0].period;
       const academicYear = s?.academicYear ?? cs[0].academicYear;
+      // No matching structure means this bucket is an ad-hoc (one-off, per-student) charge —
+      // structures aren't deletable, so `s` is only ever undefined for those. Label it by its
+      // actual item name rather than the generic "Term Fees" line.
+      const description = s ? `${term} Fees — ${academicYear}` : cs[0].itemName;
       return {
         id: uuid,
         date: s?.reviewedAt ?? s?.updatedAt ?? cs[0].generatedAt,
         kind: "Debit" as const,
-        description: `${term} Fees — ${academicYear}`,
+        description,
         term: term as string,
         academicYear: academicYear as number,
         debit: amount,
@@ -328,6 +430,7 @@ const FeeStatementPage = () => {
             disabled={loading || students.length === 0}
             className="w-[280px]"
           />
+          <Button variant="outline" size="sm" onClick={openAllocate} disabled={!student}><Plus className="w-4 h-4 mr-1" /> Allocate Charge</Button>
           <Button variant="outline" size="sm" onClick={printStatement} disabled={!student}><Printer className="w-4 h-4 mr-1" /> Print</Button>
           <Button variant="outline" size="sm" onClick={downloadPDF} disabled={!student}><Download className="w-4 h-4 mr-1" /> PDF</Button>
         </div>
@@ -430,6 +533,52 @@ const FeeStatementPage = () => {
             </CardContent>
           </Card>
 
+          {/* Ad-hoc (one-off, per-student) charges — trips, and anything else outside the standard structure */}
+          {adHocCharges.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Ad-hoc Charges</CardTitle>
+                <CardDescription>One-off charges allocated directly to {student.name}, outside the standard fee structure</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Term</TableHead>
+                      <TableHead className="text-right">Amount (KES)</TableHead>
+                      <TableHead>Allocated By</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adHocCharges.map((c) => (
+                      <TableRow key={c.uuid}>
+                        <TableCell className="font-medium">{c.itemName}{c.note ? <span className="block text-xs text-muted-foreground">{c.note}</span> : null}</TableCell>
+                        <TableCell className="text-muted-foreground text-xs">{c.term} {c.academicYear}</TableCell>
+                        <TableCell className="text-right">{Number(c.amount).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{c.allocatedByName}</TableCell>
+                        <TableCell>
+                          {c.voided
+                            ? <Badge variant="destructive" className="text-[10px]">Voided</Badge>
+                            : <Badge variant="default" className="text-[10px]">Active</Badge>}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {!c.voided && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Void charge" onClick={() => handleVoidAdHoc(c)}>
+                              <Ban className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Statement Table */}
           <Card>
             <CardHeader>
@@ -518,6 +667,69 @@ const FeeStatementPage = () => {
           </Card>
         </>
       )}
+
+      <Dialog open={allocateOpen} onOpenChange={setAllocateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Allocate Charge</DialogTitle>
+            <DialogDescription>Bill {student?.name} a one-off amount — e.g. a trip — outside the standard fee structure.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Item</Label>
+              <Select value={allocateForm.itemId} onValueChange={handleAllocateItemChange}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Custom / Other</SelectItem>
+                  {feeItems.filter((it) => it.active).map((it) => (
+                    <SelectItem key={it.id} value={String(it.id)}>{it.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Amount (KES) <span className="text-destructive">*</span></Label>
+                <Input type="number" value={allocateForm.amount} onChange={(e) => setAllocateForm((f) => ({ ...f, amount: e.target.value }))} placeholder="e.g. 3000" />
+              </div>
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input type="date" value={allocateForm.dueDate} onChange={(e) => setAllocateForm((f) => ({ ...f, dueDate: e.target.value }))} />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>Term <span className="text-destructive">*</span></Label>
+                <Select
+                  value={allocateForm.academicYear && allocateForm.term ? `${allocateForm.academicYear}::${allocateForm.term}` : ""}
+                  onValueChange={(v) => { const [academicYear, term] = v.split("::"); setAllocateForm((f) => ({ ...f, academicYear, term })); }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select the term to bill this into" /></SelectTrigger>
+                  <SelectContent>
+                    {startedTermPeriods.map((tp) => (
+                      <SelectItem key={`${tp.academicYear}-${tp.term}`} value={`${tp.academicYear}::${tp.term}`}>{tp.term} {tp.academicYear}</SelectItem>
+                    ))}
+                    {startedTermPeriods.length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">No started term periods configured — set one up under Academic Calendar first.</div>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>{allocateForm.itemId === "custom" ? "Description" : "Note"} {allocateForm.itemId === "custom" && <span className="text-destructive">*</span>}</Label>
+              <Textarea
+                value={allocateForm.note}
+                onChange={(e) => setAllocateForm((f) => ({ ...f, note: e.target.value }))}
+                placeholder={allocateForm.itemId === "custom" ? "e.g. Grade 5 Nairobi National Park trip" : "Optional note"}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAllocateOpen(false)} disabled={allocateSaving}>Cancel</Button>
+            <Button onClick={handleAllocate} disabled={allocateSaving}>{allocateSaving ? "Allocating…" : "Allocate Charge"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
