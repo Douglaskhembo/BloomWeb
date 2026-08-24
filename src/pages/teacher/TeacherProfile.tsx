@@ -8,6 +8,7 @@ import { User, Mail, Phone, ShieldCheck, KeyRound } from "lucide-react";
 import Swal from "sweetalert2";
 import { StaffApi, authAPI } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import NotificationPreferencesCard from "@/components/notifications/NotificationPreferencesCard";
 
 const STATUS_LABELS: Record<string, string> = { ACTIVE: "Active", ON_LEAVE: "On Leave", RESIGNED: "Resigned", SUSPENDED: "Suspended" };
 const STATUS_BADGE: Record<string, "default" | "secondary" | "destructive"> = { ACTIVE: "default", ON_LEAVE: "secondary", RESIGNED: "destructive", SUSPENDED: "destructive" };
@@ -115,6 +116,8 @@ const TeacherProfile = () => {
           </div>
         </CardContent>
       </Card>
+
+      <NotificationPreferencesCard />
 
       <Card>
         <CardHeader>

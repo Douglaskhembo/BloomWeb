@@ -60,6 +60,7 @@ const attendanceReportAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE
 const dailyAttendanceAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/attendance/daily`, headers: { 'Content-Type': 'application/json' } }));
 const payrollAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/payroll`,    headers: { 'Content-Type': 'application/json' } }));
 const commAPI    = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/communication`, headers: { 'Content-Type': 'application/json' } }));
+const notificationAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/notifications`, headers: { 'Content-Type': 'application/json' } }));
 const timetablePeriodAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/periods`, headers: { 'Content-Type': 'application/json' } }));
 const timetableEntryAPI  = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/timetable/entries`, headers: { 'Content-Type': 'application/json' } }));
 const assessmentAPI = applyAuthInterceptor(axios.create({ baseURL: `${BASE}/assessments`, headers: { 'Content-Type': 'application/json' } }));
@@ -1045,4 +1046,19 @@ export const CommunicationApi = {
   markRead: async (uuid: string): Promise<void> => {
     await commAPI.patch(`/inbox/${uuid}/read`);
   },
+  deleteMessage: async (uuid: string): Promise<void> => {
+    await commAPI.delete(`/inbox/${uuid}`);
+  },
+};
+
+export const NotificationApi = {
+  // Admin — org-wide channel toggles
+  getChannelSettings: async (): Promise<any> => unwrap(await notificationAPI.get('/channel-settings')),
+  updateChannelSettings: async (data: { smsEnabled: boolean; whatsappEnabled: boolean; emailEnabled: boolean; inAppEnabled: boolean }): Promise<any> =>
+    unwrap(await notificationAPI.put('/channel-settings', data)),
+  // Self-service — any authenticated staff member's own preferences
+  getMyPreferences: async (): Promise<{ availableChannels: string[]; preferences: { smsEnabled: boolean; whatsappEnabled: boolean; emailEnabled: boolean; inAppEnabled: boolean } }> =>
+    unwrap(await notificationAPI.get('/preferences')),
+  updateMyPreferences: async (data: { smsEnabled: boolean; whatsappEnabled: boolean; emailEnabled: boolean; inAppEnabled: boolean }): Promise<any> =>
+    unwrap(await notificationAPI.put('/preferences', data)),
 };

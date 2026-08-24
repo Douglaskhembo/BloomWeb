@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MessageSquare, Trash2 } from "lucide-react";
 import { CommunicationApi } from "@/services/api";
+import { getBackendErrorMessage } from "@/utils/errorHandler";
+import Swal from "sweetalert2";
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
@@ -21,6 +24,28 @@ const ParentMessages = () => {
     try { await CommunicationApi.markRead(msg.uuid); } catch { /* keep optimistic state */ }
   };
 
+  const handleDelete = async (e: React.MouseEvent, msg: any) => {
+    e.stopPropagation();
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Remove this message?",
+      text: "This only removes it from your own inbox — it stays visible to everyone else it was sent to.",
+      showCancelButton: true,
+      confirmButtonText: "Remove",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!result.isConfirmed) return;
+
+    const previous = messages;
+    setMessages((prev) => prev.filter((m) => m.uuid !== msg.uuid));
+    try {
+      await CommunicationApi.deleteMessage(msg.uuid);
+    } catch (err) {
+      setMessages(previous);
+      Swal.fire({ icon: "error", title: "Couldn't remove message", text: getBackendErrorMessage(err), showConfirmButton: true });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -37,7 +62,7 @@ const ParentMessages = () => {
           <Card
             key={msg.uuid}
             onClick={() => handleOpen(msg)}
-            className={`hover:shadow-md transition-shadow cursor-pointer ${!msg.read ? "border-primary/30 bg-primary/[0.02]" : ""}`}
+            className={`hover:shadow-md transition-shadow cursor-pointer group ${!msg.read ? "border-primary/30 bg-primary/[0.02]" : ""}`}
           >
             <CardContent className="p-4 flex items-start gap-3">
               <div className={`p-2 rounded-lg shrink-0 ${!msg.read ? "bg-primary/10" : "bg-muted"}`}>
@@ -51,6 +76,15 @@ const ParentMessages = () => {
                 <p className="text-xs text-muted-foreground">{msg.message?.senderName} · {fmtDate(msg.receivedAt)}</p>
                 <p className="text-sm text-muted-foreground mt-1 truncate">{msg.message?.body}</p>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                onClick={(e) => handleDelete(e, msg)}
+                title="Remove from my inbox"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
             </CardContent>
           </Card>
         ))}

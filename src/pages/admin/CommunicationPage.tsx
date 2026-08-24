@@ -123,7 +123,7 @@ const CommunicationPage = () => {
             <Input placeholder="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
             <Textarea placeholder="Type your message here..." rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
             <p className="text-xs text-muted-foreground">
-              Only in-app delivery is connected. SMS/WhatsApp/Email are recorded as the intended channel but not actually dispatched — no gateway is configured yet.
+              In-app delivery always happens. SMS/WhatsApp/Email are only actually dispatched if enabled in Settings, and skip any recipient who has personally opted out of that channel.
             </p>
             <Button size="sm" disabled={sending} onClick={handleSend}>
               <Send className="w-4 h-4 mr-1" /> {sending ? "Sending..." : "Send"}

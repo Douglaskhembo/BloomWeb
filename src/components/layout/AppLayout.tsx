@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import AppSidebar from "./AppSidebar";
 import { Bell, Search, Sun, Moon, Monitor, Check, LogOut, KeyRound } from "lucide-react";
@@ -13,15 +14,29 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/context/AuthContext";
+import { CommunicationApi } from "@/services/api";
 
 interface AppLayoutProps {
   role: "admin" | "parent" | "teacher";
 }
 
+const UNREAD_POLL_MS = 30000;
+
 const AppLayout = ({ role }: AppLayoutProps) => {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      CommunicationApi.getUnreadCount().then((count) => { if (!cancelled) setUnreadCount(count); });
+    };
+    load();
+    const interval = setInterval(load, UNREAD_POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   const initials = user
     ? `${user.firstName.charAt(0)}${user.otherNames.charAt(0)}`.toUpperCase()
@@ -39,9 +54,13 @@ const AppLayout = ({ role }: AppLayoutProps) => {
             <Input placeholder="Search..." className="pl-10 bg-muted/50 border-0 focus-visible:ring-1" />
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" className="relative" onClick={() => navigate(`/${role}/communication`)}>
               <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-full" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-semibold text-destructive-foreground bg-destructive rounded-full">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
