@@ -20,6 +20,7 @@ import PayrollWorkflowSetup from "@/components/payroll/PayrollWorkflowSetup";
 import { PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface PayrollSettings {
   personalRelief: number;
@@ -63,6 +64,8 @@ const formatAmount = (n: number | null) => (n === null ? "No limit" : `KES ${n.t
 
 const PayrollSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManageSalary = hasPermission("SALARY_MANAGE");
   const [taxBrackets, setTaxBrackets] = useState<TaxBracket[]>([]);
   const [statutory, setStatutory] = useState<StatutoryDeduction[]>([]);
   const [allowances, setAllowances] = useState<AllowanceType[]>([]);
@@ -302,9 +305,11 @@ const PayrollSetupPage = () => {
                 <CardTitle className="text-lg">PAYE Tax Brackets</CardTitle>
                 <CardDescription>Monthly income tax bands as per KRA rates</CardDescription>
               </div>
-              <Button size="sm" onClick={() => { setEditingBand(null); setBandOpen(true); }}>
-                <Plus className="w-4 h-4 mr-1" /> Add Band
-              </Button>
+              {canManageSalary && (
+                <Button size="sm" onClick={() => { setEditingBand(null); setBandOpen(true); }}>
+                  <Plus className="w-4 h-4 mr-1" /> Add Band
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               <Table>
@@ -325,10 +330,12 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{b.maxAmount ? b.maxAmount.toLocaleString() : "Above"}</TableCell>
                       <TableCell className="text-right font-semibold">{b.rate}%</TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingBand(b); setBandOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteBand(b.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
+                        {canManageSalary && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingBand(b); setBandOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteBand(b.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -349,7 +356,9 @@ const PayrollSetupPage = () => {
                 <CardTitle className="text-lg">Statutory Deductions</CardTitle>
                 <CardDescription>Government-mandated deductions (NSSF, SHIF, Housing Levy)</CardDescription>
               </div>
-              <Button size="sm" onClick={() => { setEditingStat(null); setStatOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Deduction</Button>
+              {canManageSalary && (
+                <Button size="sm" onClick={() => { setEditingStat(null); setStatOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Deduction</Button>
+              )}
             </CardHeader>
             <CardContent>
               <Table>
@@ -375,13 +384,15 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{formatAmount(s.maxAmount)}</TableCell>
                       <TableCell className="text-center">{s.employerContribution ? <Badge variant="default" className="text-[10px]">{s.employerValue}%</Badge> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={s.active} onCheckedChange={() => toggleStatutory(s.id)} />
+                        <Switch checked={s.active} disabled={!canManageSalary} onCheckedChange={() => toggleStatutory(s.id)} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingStat(s); setStatOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteStatutory(s.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
+                        {canManageSalary && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingStat(s); setStatOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteStatutory(s.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -401,7 +412,9 @@ const PayrollSetupPage = () => {
                 <CardTitle className="text-lg">Allowance Types</CardTitle>
                 <CardDescription>Define allowances that can be assigned to staff</CardDescription>
               </div>
-              <Button size="sm" onClick={() => { setEditingAl(null); setAlOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Allowance</Button>
+              {canManageSalary && (
+                <Button size="sm" onClick={() => { setEditingAl(null); setAlOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Allowance</Button>
+              )}
             </CardHeader>
             <CardContent>
               <Table>
@@ -423,13 +436,15 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{a.type === "fixed" ? `KES ${a.defaultValue.toLocaleString()}` : `${a.defaultValue}%`}</TableCell>
                       <TableCell className="text-center"><Badge variant={a.taxable ? "destructive" : "secondary"} className="text-[10px]">{a.taxable ? "Yes" : "No"}</Badge></TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={a.active} onCheckedChange={() => toggleAllowance(a.id)} />
+                        <Switch checked={a.active} disabled={!canManageSalary} onCheckedChange={() => toggleAllowance(a.id)} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingAl(a); setAlOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteAllowance(a.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
+                        {canManageSalary && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingAl(a); setAlOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteAllowance(a.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -449,7 +464,9 @@ const PayrollSetupPage = () => {
                 <CardTitle className="text-lg">Other Deductions</CardTitle>
                 <CardDescription>Voluntary and institutional deductions (SACCO, welfare, loans)</CardDescription>
               </div>
-              <Button size="sm" onClick={() => { setEditingDed(null); setDedOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Deduction</Button>
+              {canManageSalary && (
+                <Button size="sm" onClick={() => { setEditingDed(null); setDedOpen(true); }}><Plus className="w-4 h-4 mr-1" /> Add Deduction</Button>
+              )}
             </CardHeader>
             <CardContent>
               <Table>
@@ -471,13 +488,15 @@ const PayrollSetupPage = () => {
                       <TableCell className="text-right">{d.type === "fixed" ? `KES ${d.defaultValue.toLocaleString()}` : `${d.defaultValue}%`}</TableCell>
                       <TableCell className="text-center"><Badge variant={d.mandatory ? "default" : "secondary"} className="text-[10px]">{d.mandatory ? "Yes" : "No"}</Badge></TableCell>
                       <TableCell className="text-center">
-                        <Switch checked={d.active} onCheckedChange={() => toggleDeduction(d.id)} />
+                        <Switch checked={d.active} disabled={!canManageSalary} onCheckedChange={() => toggleDeduction(d.id)} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingDed(d); setDedOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteDeduction(d.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
+                        {canManageSalary && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingDed(d); setDedOpen(true); }}><Pencil className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteDeduction(d.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -505,19 +524,19 @@ const PayrollSetupPage = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Personal Relief (Monthly KES)</Label>
-                  <Input type="number" value={settings.personalRelief} onChange={(e) => setSettings((s) => ({ ...s, personalRelief: Number(e.target.value) }))} />
+                  <Input type="number" disabled={!canManageSalary} value={settings.personalRelief} onChange={(e) => setSettings((s) => ({ ...s, personalRelief: Number(e.target.value) }))} />
                   <p className="text-xs text-muted-foreground">KRA personal relief deducted from PAYE</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Insurance Relief (Annual Max KES)</Label>
-                  <Input type="number" value={settings.insuranceRelief} onChange={(e) => setSettings((s) => ({ ...s, insuranceRelief: Number(e.target.value) }))} />
+                  <Input type="number" disabled={!canManageSalary} value={settings.insuranceRelief} onChange={(e) => setSettings((s) => ({ ...s, insuranceRelief: Number(e.target.value) }))} />
                   <p className="text-xs text-muted-foreground">Max annual insurance relief claim</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Pay Day</Label>
-                  <Select value={String(settings.payDay)} onValueChange={(v) => setSettings((s) => ({ ...s, payDay: Number(v) }))}>
+                  <Select value={String(settings.payDay)} disabled={!canManageSalary} onValueChange={(v) => setSettings((s) => ({ ...s, payDay: Number(v) }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {[25, 26, 27, 28, 29, 30].map((d) => (<SelectItem key={d} value={String(d)}>{d}th of every month</SelectItem>))}
@@ -527,7 +546,7 @@ const PayrollSetupPage = () => {
                 </div>
                 <div className="space-y-2">
                   <Label>Payment Method</Label>
-                  <Select value={settings.paymentMethod} onValueChange={(v) => setSettings((s) => ({ ...s, paymentMethod: v }))}>
+                  <Select value={settings.paymentMethod} disabled={!canManageSalary} onValueChange={(v) => setSettings((s) => ({ ...s, paymentMethod: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
@@ -537,7 +556,7 @@ const PayrollSetupPage = () => {
                   </Select>
                 </div>
               </div>
-              <Button onClick={saveSettings}>Save Settings</Button>
+              {canManageSalary && <Button onClick={saveSettings}>Save Settings</Button>}
             </CardContent>
           </Card>
         </TabsContent>

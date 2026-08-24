@@ -5,6 +5,7 @@ import { CalendarDays, DollarSign, BookOpen, Calculator, Award, Wallet, Fingerpr
 import { useNavigate } from "react-router-dom";
 import { LeaveApi, FeeApi, SubjectApi, StaffRoleApi, PayrollApi, StaffApi, DeviceApi, HolidayApi, AcademicCalendarApi } from "@/services/api";
 import { usePayroll } from "@/context/PayrollContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface CardCounts { active: number; total: number; }
 
@@ -21,15 +22,23 @@ const countActive = (rows: any[]): CardCounts => ({
 const ManagementPage = () => {
   const navigate = useNavigate();
   const { salaries } = usePayroll();
+  const { hasPermission } = useAuth();
+  const canViewFees = hasPermission("FEES_VIEW");
+  const canManageAttendance = hasPermission("ATTENDANCE_MANAGE");
+  const canViewStaff = hasPermission("STAFF_VIEW");
   const [counts, setCounts] = useState<Record<string, CardCounts>>({});
   const [staffList, setStaffList] = useState<any[]>([]);
 
   useEffect(() => {
     LeaveApi.getTypes().then((rows) => setCounts((c) => ({ ...c, leaveTypes: countActive(rows) })));
-    FeeApi.getItems().then((rows) => setCounts((c) => ({ ...c, feeStructure: countActive(rows) })));
+    if (canViewFees) {
+      FeeApi.getItems().then((rows) => setCounts((c) => ({ ...c, feeStructure: countActive(rows) })));
+    }
     SubjectApi.getAll().then((rows) => setCounts((c) => ({ ...c, subjects: countActive(rows) })));
     StaffRoleApi.getAll().then((rows) => setCounts((c) => ({ ...c, staffRoles: countActive(rows) })));
-    DeviceApi.getAll().then((rows) => setCounts((c) => ({ ...c, biometrics: countActive(rows) })));
+    if (canManageAttendance) {
+      DeviceApi.getAll().then((rows) => setCounts((c) => ({ ...c, biometrics: countActive(rows) })));
+    }
     HolidayApi.getAll().then((rows) => setCounts((c) => ({ ...c, holidays: countActive(rows) })));
     Promise.all([AcademicCalendarApi.getTermPeriods(), AcademicCalendarApi.getEvents()]).then(([terms, events]) => {
       setCounts((c) => ({
@@ -37,7 +46,9 @@ const ManagementPage = () => {
         academicCalendar: { active: terms.length + events.filter((e) => e.active).length, total: terms.length + events.length },
       }));
     });
-    StaffApi.getAll().then(setStaffList).catch(() => setStaffList([]));
+    if (canViewStaff) {
+      StaffApi.getAll().then(setStaffList).catch(() => setStaffList([]));
+    }
 
     Promise.all([
       PayrollApi.getPayeBands(),
@@ -55,7 +66,7 @@ const ManagementPage = () => {
         },
       }));
     });
-  }, []);
+  }, [canViewFees, canManageAttendance, canViewStaff]);
 
   const staffSalaries: CardCounts = useMemo(
     () => ({
@@ -85,6 +96,7 @@ const ManagementPage = () => {
       description: "Set up fee items, amounts per grade, and billing terms",
       counts: counts.feeStructure ?? emptyCounts,
       totalLabel: "items",
+      requiredPermission: "FEES_VIEW",
     },
     {
       to: "/admin/setup-subjects",
@@ -135,6 +147,7 @@ const ManagementPage = () => {
       description: "Configure staff salary scales, grades, and pay structures",
       counts: staffSalaries,
       totalLabel: "staff",
+      requiredPermission: "STAFF_VIEW",
     },
     {
       to: "/admin/setup-biometrics",
@@ -145,6 +158,7 @@ const ManagementPage = () => {
       description: "Enroll staff/student fingerprints, register devices, assign class teachers",
       counts: counts.biometrics ?? emptyCounts,
       totalLabel: "devices",
+      requiredPermission: "ATTENDANCE_MANAGE",
     },
     {
       to: "/admin/setup-public-holidays",
@@ -168,6 +182,8 @@ const ManagementPage = () => {
     },
   ];
 
+  const visibleCards = managementCards.filter((card) => hasPermission(card.requiredPermission));
+
   return (
     <div className="space-y-6">
       <div>
@@ -176,7 +192,7 @@ const ManagementPage = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {managementCards.map((card) => (
+        {visibleCards.map((card) => (
           <Card
             key={card.to}
             className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"

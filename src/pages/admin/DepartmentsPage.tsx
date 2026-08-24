@@ -9,6 +9,7 @@ import AddDepartmentModal, { DepartmentFormValue } from "@/components/modals/Add
 import { SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Department {
   uuid: string;
@@ -19,6 +20,8 @@ interface Department {
 }
 
 const DepartmentsPage = () => {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SCHOOL_SETUP");
   const [departments, setDepartments] = useState<Department[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Department | null>(null);
@@ -93,9 +96,11 @@ const DepartmentsPage = () => {
           </CardTitle>
           <CardDescription>Define departments at school level. Assign them to branches from the Branches tab.</CardDescription>
         </div>
-        <Button size="sm" onClick={() => { setEditing(null); setAddOpen(true); }}>
-          <Plus className="w-4 h-4 mr-1" /> Add Department
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => { setEditing(null); setAddOpen(true); }}>
+            <Plus className="w-4 h-4 mr-1" /> Add Department
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         <Table>
@@ -120,17 +125,19 @@ const DepartmentsPage = () => {
                   <Badge variant={active ? "default" : "secondary"}>{active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" className="h-8" onClick={() => handleToggle(d.uuid)}>
-                      {active ? "Deactivate" : "Activate"}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(d); setAddOpen(true); }}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(d.uuid)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {canManage && (
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" className="h-8" onClick={() => handleToggle(d.uuid)}>
+                        {active ? "Deactivate" : "Activate"}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(d); setAddOpen(true); }}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(d.uuid)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
               );

@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Settings2, GraduationCap, Landmark } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 const setupCards = [
   {
@@ -14,6 +15,7 @@ const setupCards = [
     activeCount: 11,
     totalCount: 11,
     totalLabel: "grades",
+    requiredPermission: "SCHOOL_SETUP",
   },
   {
     to: "/admin/setup-banks",
@@ -22,11 +24,14 @@ const setupCards = [
     iconColor: "text-success",
     title: "Banks & Mobile Money",
     description: "Master list of banks and mobile money providers (M-Pesa, Airtel Money) for payroll disbursement",
+    requiredPermission: "SALARY_MANAGE",
   },
 ];
 
 const SystemSetupsPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const visibleCards = setupCards.filter((card) => hasPermission(card.requiredPermission));
 
   return (
     <div className="space-y-6">
@@ -36,7 +41,7 @@ const SystemSetupsPage = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {setupCards.map((card) => (
+        {visibleCards.map((card) => (
           <Card
             key={card.to}
             className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import AppSidebar from "./AppSidebar";
 import { Bell, Search, Sun, Moon, Monitor, Check, LogOut, KeyRound } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuth } from "@/context/AuthContext";
 import { CommunicationApi } from "@/services/api";
+import { canAccessPath } from "@/config/navAccess";
 
 interface AppLayoutProps {
   role: "admin" | "parent" | "teacher";
@@ -26,7 +27,21 @@ const AppLayout = ({ role }: AppLayoutProps) => {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Route guard: a hidden sidebar link doesn't stop someone typing the URL directly — this
+  // reuses the exact same permission table the sidebar renders around (see navAccess.ts), so nav
+  // visibility and direct-URL access can never disagree. Redirect to the user's own
+  // redirectPath (their actual home portal), not `/${role}` — someone who isn't admin-eligible
+  // at all (e.g. a plain teacher who typed /admin in the URL bar) fails the check even on the
+  // bare admin dashboard, so redirecting back to `/${role}` would loop forever; redirectPath is
+  // always a page this exact user passes the check on (same rule App.tsx's root route already
+  // relies on for post-login routing).
+  const allowed = canAccessPath(role, user, location.pathname);
+  useEffect(() => {
+    if (!allowed) navigate(user?.redirectPath ?? "/", { replace: true });
+  }, [allowed, user, location.pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +114,7 @@ const AppLayout = ({ role }: AppLayoutProps) => {
           </div>
         </header>
         <main className="flex-1 p-6">
-          <Outlet />
+          {allowed ? <Outlet /> : null}
         </main>
         <footer className="border-t border-border bg-card/50 px-6 py-3 flex items-center justify-between text-xs text-muted-foreground">
           <span>© {new Date().getFullYear()} BloomSchool. All rights reserved.</span>

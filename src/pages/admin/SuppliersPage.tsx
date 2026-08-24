@@ -12,6 +12,7 @@ import { SupplierFormValues } from "@/components/forms/SupplierForm";
 import { SupplierApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Supplier {
   id: number;
@@ -42,6 +43,8 @@ const emptyForm: SupplierFormValues = {
 };
 
 const SuppliersPage = () => {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SUPPLIERS_MANAGE");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -136,7 +139,7 @@ const SuppliersPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Suppliers</h1>
           <p className="text-muted-foreground">Manage vendors and supplier relationships</p>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Supplier</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Supplier</Button>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -189,20 +192,24 @@ const SuppliersPage = () => {
                   <TableCell>
                     <Badge
                       variant={s.status === "Active" ? "default" : "secondary"}
-                      className="text-[10px] cursor-pointer"
-                      onClick={() => handleToggleStatus(s.id)}
+                      className={canManage ? "text-[10px] cursor-pointer" : "text-[10px]"}
+                      onClick={canManage ? () => handleToggleStatus(s.id) : undefined}
                     >
                       {s.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(s.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(s.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

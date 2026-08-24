@@ -12,6 +12,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Bus, MapPin, Users, AlertTriangle, Plus, UserPlus, Trash2, Search, Edit, X, ClipboardCheck } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { TransportApi, TransportAttendanceApi, StudentApi, StaffApi } from "@/services/api";
+import { useAuth } from "@/context/AuthContext";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
@@ -25,6 +26,11 @@ const BOARDING_STATUS_OPTIONS: StatusOption[] = [
 ];
 
 const TransportPage = () => {
+  const { hasPermission } = useAuth();
+  // Route/enrollment reads are open, but writes (create/edit/delete route, enroll/unenroll)
+  // require TRANSPORT_MANAGE on the backend. Attendance marking has no permission check by
+  // design, so that tab is left ungated.
+  const canManageTransport = hasPermission("TRANSPORT_MANAGE");
   const [routes, setRoutes] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -225,7 +231,7 @@ const TransportPage = () => {
                 <CardTitle className="text-lg">Transport Routes</CardTitle>
                 <CardDescription>Manage bus routes, drivers, and pickup points</CardDescription>
               </div>
-              <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Route</Button>
+              {canManageTransport && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Route</Button>}
             </CardHeader>
             <CardContent>
               <Table>
@@ -265,10 +271,12 @@ const TransportPage = () => {
                         <Badge variant={r.status === "ACTIVE" ? "default" : "destructive"} className="text-[10px]">{r.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}><Edit className="w-4 h-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteRoute(r.uuid)}><Trash2 className="w-4 h-4" /></Button>
-                        </div>
+                        {canManageTransport && (
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}><Edit className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteRoute(r.uuid)}><Trash2 className="w-4 h-4" /></Button>
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -289,7 +297,7 @@ const TransportPage = () => {
                 <CardTitle className="text-lg">Enrolled Students</CardTitle>
                 <CardDescription>Assign students to transport routes and pickup points</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setEnrollDialogOpen(true)}><UserPlus className="w-4 h-4 mr-1" /> Enroll Student</Button>
+              {canManageTransport && <Button size="sm" onClick={() => setEnrollDialogOpen(true)}><UserPlus className="w-4 h-4 mr-1" /> Enroll Student</Button>}
             </CardHeader>
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -325,7 +333,9 @@ const TransportPage = () => {
                       <TableCell>{e.route?.name}</TableCell>
                       <TableCell><Badge variant="outline" className="text-xs"><MapPin className="w-3 h-3 mr-1" />{e.pickupPoint}</Badge></TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleUnenroll(e.uuid)}><Trash2 className="w-4 h-4" /></Button>
+                        {canManageTransport && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleUnenroll(e.uuid)}><Trash2 className="w-4 h-4" /></Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

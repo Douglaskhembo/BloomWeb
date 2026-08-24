@@ -14,6 +14,7 @@ import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import { GradingApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/context/AuthContext";
 
 interface GradeEntry {
   label: string;
@@ -102,6 +103,8 @@ const toStructure = (raw: any): GradingStructure => ({
 
 const GradingSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SUBJECTS_MANAGE");
   const [structures, setStructures] = useState<GradingStructure[]>([]);
   const [loading, setLoading] = useState(false);
   const [gradesList, setGradesList] = useState<string[]>([]);
@@ -267,24 +270,26 @@ const GradingSetupPage = () => {
               <p className="text-muted-foreground">{currentStructure.entries.length} grade boundaries defined</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Select onValueChange={handleApplyPreset}>
-              <SelectTrigger className="w-[180px] h-9">
-                <SelectValue placeholder="Apply preset" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(curriculumPresets).map(([key, p]) => (
-                  <SelectItem key={key} value={key}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => setCopyDialogOpen(true)}>
-              <Copy className="w-3.5 h-3.5 mr-1" /> Copy to Grade
-            </Button>
-            <Button size="sm" onClick={handleOpenAddEntry}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Add Entry
-            </Button>
-          </div>
+          {canManage && (
+            <div className="flex gap-2">
+              <Select onValueChange={handleApplyPreset}>
+                <SelectTrigger className="w-[180px] h-9">
+                  <SelectValue placeholder="Apply preset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(curriculumPresets).map(([key, p]) => (
+                    <SelectItem key={key} value={key}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => setCopyDialogOpen(true)}>
+                <Copy className="w-3.5 h-3.5 mr-1" /> Copy to Grade
+              </Button>
+              <Button size="sm" onClick={handleOpenAddEntry}>
+                <Plus className="w-3.5 h-3.5 mr-1" /> Add Entry
+              </Button>
+            </div>
+          )}
         </div>
 
         <Card>
@@ -311,14 +316,16 @@ const GradingSetupPage = () => {
                     <TableCell>{entry.points}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{entry.remark}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditEntry(actualIndex, entry)}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteEntry(actualIndex)}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
+                      {canManage && (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditEntry(actualIndex, entry)}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteEntry(actualIndex)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                   );
@@ -413,9 +420,11 @@ const GradingSetupPage = () => {
             <p className="text-muted-foreground">Configure grade boundaries per grade level</p>
           </div>
         </div>
-        <Button size="sm" onClick={() => setDialogOpen(true)}>
-          <Plus className="w-3.5 h-3.5 mr-1" /> Add Grade
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> Add Grade
+          </Button>
+        )}
       </div>
 
       {loading ? (
@@ -442,9 +451,11 @@ const GradingSetupPage = () => {
                       {s.entries.length > 6 && <Badge variant="secondary" className="text-[10px]">+{s.entries.length - 6}</Badge>}
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteGrade(s); }}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  {canManage && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); handleDeleteGrade(s); }}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

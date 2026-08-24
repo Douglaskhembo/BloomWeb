@@ -11,6 +11,7 @@ import { SubjectFormValues } from "@/components/forms/SubjectForm";
 import { SubjectApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Subject { id: number; name: string; code: string; grades: string[]; status: "active" | "inactive"; }
 interface GradeLevelOption { uuid: string; name: string; active: boolean; }
@@ -33,6 +34,8 @@ const emptyForm: SubjectFormValues = { name: "", code: "", grades: [], active: t
 
 const SubjectsSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SUBJECTS_MANAGE");
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,7 +107,7 @@ const SubjectsSetupPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Subjects</h1>
           <p className="text-muted-foreground">Define subjects offered per grade level</p>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Subject</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Subject</Button>}
       </div>
 
       <Card>
@@ -147,14 +150,16 @@ const SubjectsSetupPage = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(subject)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(subject.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    {canManage && (
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(subject)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(subject.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

@@ -11,6 +11,7 @@ import { HolidayFormValues } from "@/components/forms/HolidayForm";
 import { HolidayApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Holiday { id: number; name: string; date: string; recurringAnnually: boolean; status: "active" | "inactive"; }
 
@@ -26,6 +27,8 @@ const emptyForm: HolidayFormValues = { name: "", date: "", recurringAnnually: fa
 
 const HolidaysSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SETUP_MANAGE");
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -89,7 +92,7 @@ const HolidaysSetupPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Public Holidays</h1>
           <p className="text-muted-foreground">Manage the dates leave requests treat as non-working days</p>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Holiday</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Holiday</Button>}
       </div>
 
       <Card>
@@ -129,14 +132,16 @@ const HolidaysSetupPage = () => {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(h)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(h.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    {canManage && (
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(h)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(h.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

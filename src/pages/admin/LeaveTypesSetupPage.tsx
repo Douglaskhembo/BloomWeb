@@ -12,6 +12,7 @@ import { LeaveTypeFormValues } from "@/components/forms/LeaveTypeForm";
 import { LeaveApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface LeaveType {
   id: number;
@@ -56,6 +57,8 @@ const emptyForm: LeaveTypeFormValues = {
 
 const LeaveTypesSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("LEAVE_MANAGE");
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -151,7 +154,7 @@ const LeaveTypesSetupPage = () => {
             <p className="text-muted-foreground">Configure leave categories, entitlements, and policies</p>
           </div>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Leave Type</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Leave Type</Button>}
       </div>
 
       <Card>
@@ -221,12 +224,16 @@ const LeaveTypesSetupPage = () => {
                     </div>
                   </TableCell>
                   <TableCell className="text-center">
-                    <Switch checked={lt.active} onCheckedChange={() => toggleActive(lt.id)} />
+                    <Switch checked={lt.active} disabled={!canManage} onCheckedChange={() => toggleActive(lt.id)} />
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(lt)}><Pencil className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(lt.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(lt)}><Pencil className="w-3.5 h-3.5" /></Button>
+                      )}
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(lt.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

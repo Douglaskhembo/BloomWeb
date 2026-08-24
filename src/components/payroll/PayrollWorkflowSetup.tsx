@@ -13,6 +13,7 @@ import Swal from "sweetalert2";
 import { PayrollApi, UserApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { usePayroll, PayrollWorkflowStep as WorkflowStep, PayrollWorkflowStepUser as PersonRef, PayrollMaker as Maker } from "@/context/PayrollContext";
+import { useAuth } from "@/context/AuthContext";
 
 type ApprovalRule = "ALL_MUST_APPROVE" | "ANY_ONE_APPROVES" | "AT_LEAST";
 
@@ -28,6 +29,8 @@ const personLabel = (u: { userName: string; firstName?: string; otherNames?: str
   `${u.firstName ?? ""} ${u.otherNames ?? ""}`.trim() || u.userName;
 
 const PayrollWorkflowSetup = () => {
+  const { hasPermission } = useAuth();
+  const canManageWorkflow = hasPermission("PAYROLL_WORKFLOW_MANAGE");
   const { makers, workflowSteps: steps, refreshMakers, refreshWorkflowSteps } = usePayroll();
   const [allUsers, setAllUsers] = useState<PersonRef[]>([]);
 
@@ -195,10 +198,12 @@ const PayrollWorkflowSetup = () => {
             ability — nothing needs to be set up elsewhere first.
           </CardDescription>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <Button size="sm" variant="outline" onClick={openAddMaker}><UserCog className="w-4 h-4 mr-1" /> Add Maker</Button>
-          <Button size="sm" onClick={openAddStep}><Plus className="w-4 h-4 mr-1" /> Add Approval Step</Button>
-        </div>
+        {canManageWorkflow && (
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="outline" onClick={openAddMaker}><UserCog className="w-4 h-4 mr-1" /> Add Maker</Button>
+            <Button size="sm" onClick={openAddStep}><Plus className="w-4 h-4 mr-1" /> Add Approval Step</Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {makers.length === 0 && steps.length === 0 ? (
@@ -223,9 +228,11 @@ const PayrollWorkflowSetup = () => {
                   <TableCell><Badge variant="secondary" className="text-[10px]">Maker</Badge></TableCell>
                   <TableCell className="font-medium">{personLabel(m.user)}</TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeMaker(m)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {canManageWorkflow && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeMaker(m)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -251,20 +258,22 @@ const PayrollWorkflowSetup = () => {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" disabled={i === 0} onClick={() => move(i, -1)}>
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" disabled={i === steps.length - 1} onClick={() => move(i, 1)}>
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditStep(step)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeStep(step)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                    {canManageWorkflow && (
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={i === 0} onClick={() => move(i, -1)}>
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={i === steps.length - 1} onClick={() => move(i, 1)}>
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditStep(step)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeStep(step)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

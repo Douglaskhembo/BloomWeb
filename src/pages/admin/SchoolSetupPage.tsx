@@ -14,9 +14,15 @@ import GradeLevelsPage from "./GradeLevelsPage";
 import DepartmentsPage from "./DepartmentsPage";
 import BranchesPage from "./BranchesPage";
 import SchoolBankAccountsPage from "./SchoolBankAccountsPage";
+import { useAuth } from "@/context/AuthContext";
 
 const SchoolSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SCHOOL_SETUP");
+  // Bank Accounts tab's backend controller requires PAYROLL_STAFF_PAYMENT_MANAGE (not
+  // SCHOOL_SETUP) even to view it — hide the whole tab, not just its buttons, for users who lack it.
+  const canViewBankAccounts = hasPermission("PAYROLL_STAFF_PAYMENT_MANAGE");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [info, setInfo] = useState<any>({});
@@ -26,7 +32,9 @@ const SchoolSetupPage = () => {
   const [activeTab, setActiveTab] = useState("bio-data");
 
   const isNew = !info.uuid;
-  const locked = !isNew && !editing;
+  // Fields also stay locked for a user without SCHOOL_SETUP even on the "create school" (isNew)
+  // state, which would otherwise be editable-by-default regardless of permission.
+  const locked = !canManage || (!isNew && !editing);
 
   useEffect(() => {
     SchoolApi.getInfo().then((data) => {
@@ -49,7 +57,8 @@ const SchoolSetupPage = () => {
   useEffect(() => {
     if (activeTab === "departments" && !info.hasDepartment) setActiveTab("bio-data");
     if (activeTab === "branches" && !info.hasBranch) setActiveTab("bio-data");
-  }, [info.hasDepartment, info.hasBranch, activeTab]);
+    if (activeTab === "bank-accounts" && !canViewBankAccounts) setActiveTab("bio-data");
+  }, [info.hasDepartment, info.hasBranch, activeTab, canViewBankAccounts]);
 
   const handleSave = async () => {
     if (!info.name?.trim()) {
@@ -99,7 +108,7 @@ const SchoolSetupPage = () => {
           <TabsTrigger value="grade-levels">Grade Levels</TabsTrigger>
           {info.hasDepartment && <TabsTrigger value="departments">Departments</TabsTrigger>}
           {info.hasBranch && <TabsTrigger value="branches">Branches</TabsTrigger>}
-          <TabsTrigger value="bank-accounts">Bank Accounts</TabsTrigger>
+          {canViewBankAccounts && <TabsTrigger value="bank-accounts">Bank Accounts</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="bio-data" className="mt-4">
@@ -109,7 +118,7 @@ const SchoolSetupPage = () => {
                 <CardTitle className="text-lg">School Information</CardTitle>
                 <CardDescription>Basic details about your school</CardDescription>
               </div>
-              {locked && (
+              {locked && canManage && (
                 <Button variant="outline" size="sm" onClick={handleEdit}>
                   <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
                 </Button>

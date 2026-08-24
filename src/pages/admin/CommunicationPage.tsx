@@ -5,11 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MessageSquare, Send, Users, Mail } from "lucide-react";
+import { MessageSquare, Send, Users, Mail, Eye } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { CommunicationApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { GRADES } from "@/data/feesMock";
+import { useAuth } from "@/context/AuthContext";
 import Swal from "sweetalert2";
 
 const AUDIENCE_LABELS: Record<string, string> = {
@@ -29,6 +30,12 @@ const CHANNEL_LABELS: Record<string, string> = {
 const fmtDate = (iso: string) => new Date(iso).toLocaleString();
 
 const CommunicationPage = () => {
+  const { hasPermission } = useAuth();
+  // Message-history load actually requires COMMUNICATION_MANAGE on the backend (not
+  // COMMUNICATION_VIEW, which this page doesn't use); sending is gated independently on
+  // COMMUNICATION_SEND so a user can hold one without the other.
+  const canViewMessages = hasPermission("COMMUNICATION_MANAGE");
+  const canSend = hasPermission("COMMUNICATION_SEND");
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -43,7 +50,7 @@ const CommunicationPage = () => {
     setLoading(true);
     CommunicationApi.getMessages().then(setMessages).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (canViewMessages) load(); }, [canViewMessages]);
 
   const handleSend = async () => {
     if (!subject.trim() || !body.trim()) {
@@ -80,11 +87,13 @@ const CommunicationPage = () => {
         <p className="text-muted-foreground">Send in-app announcements to parents, teachers, or staff</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard title="Messages Sent" value={messages.length} icon={Send} iconColor="bg-primary/10 text-primary" />
-        <StatCard title="Recipients Reached" value={totalRecipients} icon={Users} iconColor="bg-info/10 text-info" />
-        <StatCard title="Audiences Used" value={distinctAudiences} icon={MessageSquare} iconColor="bg-success/10 text-success" />
-      </div>
+      {canViewMessages && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <StatCard title="Messages Sent" value={messages.length} icon={Send} iconColor="bg-primary/10 text-primary" />
+          <StatCard title="Recipients Reached" value={totalRecipients} icon={Users} iconColor="bg-info/10 text-info" />
+          <StatCard title="Audiences Used" value={distinctAudiences} icon={MessageSquare} iconColor="bg-success/10 text-success" />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Compose */}
@@ -125,9 +134,11 @@ const CommunicationPage = () => {
             <p className="text-xs text-muted-foreground">
               In-app delivery always happens. SMS/WhatsApp/Email are only actually dispatched if enabled in Settings, and skip any recipient who has personally opted out of that channel.
             </p>
-            <Button size="sm" disabled={sending} onClick={handleSend}>
-              <Send className="w-4 h-4 mr-1" /> {sending ? "Sending..." : "Send"}
-            </Button>
+            {canSend && (
+              <Button size="sm" disabled={sending} onClick={handleSend}>
+                <Send className="w-4 h-4 mr-1" /> {sending ? "Sending..." : "Send"}
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -137,7 +148,11 @@ const CommunicationPage = () => {
             <CardTitle className="text-lg">Recent Messages</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {loading ? (
+            {!canViewMessages ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center text-center">
+                <Eye className="w-4 h-4 shrink-0" /> You don't have permission to view sent messages.
+              </div>
+            ) : loading ? (
               <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
             ) : messages.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">No messages sent yet.</p>

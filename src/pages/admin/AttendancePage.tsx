@@ -16,6 +16,7 @@ import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
 import Pagination from "@/utils/Pagination";
 import AttendanceChecklist, { ChecklistRow, StatusOption } from "@/components/attendance/AttendanceChecklist";
+import { useAuth } from "@/context/AuthContext";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
@@ -28,6 +29,8 @@ const STATUS_OPTIONS: StatusOption[] = [
 ];
 
 const AttendancePage = () => {
+  const { hasPermission } = useAuth();
+  const canMarkAttendance = hasPermission(["ATTENDANCE_MANAGE", "ATTENDANCE_MARK"]);
   const [tab, setTab] = useState<"students" | "staff">("students");
   const [from, setFrom] = useState(todayISO());
   const [to, setTo] = useState(todayISO());
@@ -176,7 +179,7 @@ const AttendancePage = () => {
         </CardContent>
       </Card>
 
-      {tab === "students" && (
+      {tab === "students" && canMarkAttendance && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2"><ClipboardCheck className="w-4 h-4" /> Mark Attendance (Admin Override)</CardTitle>

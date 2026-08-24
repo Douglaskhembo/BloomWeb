@@ -24,7 +24,11 @@ const currentYear = new Date().getFullYear();
 const years = [currentYear, currentYear - 1, currentYear - 2];
 
 const TermReportsPage = ({ role }: TermReportsPageProps) => {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  // Only meaningful for the admin variant — REPORTS_VIEW already gates page access there via the
+  // route guard, but publishing/generating term reports needs the distinct REPORT_GENERATE grant.
+  // The teacher/parent variants never render the publish controls below, so this doesn't affect them.
+  const canGenerateReports = hasPermission("REPORT_GENERATE");
   const [staff, setStaff] = useState<any | null>(null);
   const [gradeLevels, setGradeLevels] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
@@ -250,8 +254,8 @@ const TermReportsPage = ({ role }: TermReportsPageProps) => {
         </CardContent>
       </Card>
 
-      {/* Publish actions — admin only */}
-      {role === "admin" && classGroups.length > 0 && (
+      {/* Publish actions — admin only, and only with the REPORT_GENERATE permission */}
+      {role === "admin" && canGenerateReports && classGroups.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {classGroups.map((g) => {
             const key = `${g.gradeLevelUuid}|${g.stream}`;

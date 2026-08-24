@@ -24,6 +24,10 @@ interface AuthContextType {
   login: (user: AuthUser) => void;
   logout: () => void;
   isAuthenticated: boolean;
+  /** True if the user holds at least one of the given permissions. No argument (or an empty
+   *  list) means "no permission required" — always true, matching the convention used
+   *  throughout the app that an ungated screen/action is open to anyone authenticated. */
+  hasPermission: (required?: string | string[]) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -64,8 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const hasPermission = (required?: string | string[]) => {
+    if (!required || (Array.isArray(required) && required.length === 0)) return true;
+    const myPermissions = user?.permissions ?? [];
+    const list = Array.isArray(required) ? required : [required];
+    return list.some((p) => myPermissions.includes(p));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

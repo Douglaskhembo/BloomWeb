@@ -47,9 +47,12 @@ interface StaffViewModalProps {
   onEdit: (staff: StaffMember) => void;
   onDelete: (staff: StaffMember) => void;
   onStatusChange: (staff: StaffMember, status: string) => void;
+  /** Whether the current user holds STAFF_MANAGE — controls Edit/Status/Delete visibility. Defaults
+   *  to true so existing callers keep their current behavior if they don't pass it. */
+  canManage?: boolean;
 }
 
-const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusChange }: StaffViewModalProps) => {
+const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusChange, canManage = true }: StaffViewModalProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -59,22 +62,24 @@ const StaffViewModal = ({ open, onOpenChange, staff, onEdit, onDelete, onStatusC
         </DialogHeader>
         {staff && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 justify-end">
-              <Button size="sm" variant="outline" onClick={() => { onOpenChange(false); onEdit(staff); }}>
-                <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
-              </Button>
-              <Select value={staff.status} onValueChange={(v) => onStatusChange(staff, v)}>
-                <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["ACTIVE", "ON_LEAVE", "SUSPENDED", "RESIGNED"].map(s => (
-                    <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" variant="destructive" onClick={() => { onDelete(staff); onOpenChange(false); }}>
-                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
-              </Button>
-            </div>
+            {canManage && (
+              <div className="flex items-center gap-2 justify-end">
+                <Button size="sm" variant="outline" onClick={() => { onOpenChange(false); onEdit(staff); }}>
+                  <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+                </Button>
+                <Select value={staff.status} onValueChange={(v) => onStatusChange(staff, v)}>
+                  <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["ACTIVE", "ON_LEAVE", "SUSPENDED", "RESIGNED"].map(s => (
+                      <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="destructive" onClick={() => { onDelete(staff); onOpenChange(false); }}>
+                  <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                </Button>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <div><span className="text-muted-foreground">Full Name:</span> <span className="font-medium ml-1">{staff.firstName} {staff.lastName}</span></div>

@@ -11,12 +11,15 @@ import { BillFormValues } from "@/components/forms/BillForm";
 import { BillApi, SupplierApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 const formatKES = (n: number) => `KES ${n.toLocaleString()}`;
 
 const emptyForm: BillFormValues = { supplierId: "", supplierName: "", description: "", amount: "", dueDate: "" };
 
 const BillsPage = () => {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("BILLS_MANAGE");
   const [bills, setBills] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -110,7 +113,7 @@ const BillsPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Bills & Expenses</h1>
           <p className="text-muted-foreground">Track supplier invoices and school expenses</p>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Bill</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Bill</Button>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -157,15 +160,19 @@ const BillsPage = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      {b.status !== "PAID" && (
+                      {canManage && b.status !== "PAID" && (
                         <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => handleMarkPaid(b.id)}>Mark Paid</Button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(b)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(b.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(b)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      {canManage && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(b.id)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

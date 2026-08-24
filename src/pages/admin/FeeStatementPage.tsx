@@ -15,6 +15,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { FeeApi, StudentApi, AdHocChargeApi, AcademicCalendarApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/context/AuthContext";
 import { toStudent, toPayment, expectedForGrade } from "@/utils/feePayment";
 import type { Payment, Student } from "@/data/feesMock";
 import Pagination from "@/utils/Pagination";
@@ -43,6 +44,10 @@ interface LedgerEntry {
 }
 
 const FeeStatementPage = () => {
+  const { hasPermission } = useAuth();
+  // Allocating/voiding an ad-hoc charge maps to a more restrictive backend check than just
+  // viewing the statement (which only needs FEES_VIEW, enforced by the route guard).
+  const canManageCharges = hasPermission("FEES_MANAGE");
   const [students, setStudents] = useState<Student[]>([]);
   const [feeItems, setFeeItems] = useState<any[]>([]);
   const [structures, setStructures] = useState<any[]>([]);
@@ -430,7 +435,9 @@ const FeeStatementPage = () => {
             disabled={loading || students.length === 0}
             className="w-[280px]"
           />
-          <Button variant="outline" size="sm" onClick={openAllocate} disabled={!student}><Plus className="w-4 h-4 mr-1" /> Allocate Charge</Button>
+          {canManageCharges && (
+            <Button variant="outline" size="sm" onClick={openAllocate} disabled={!student}><Plus className="w-4 h-4 mr-1" /> Allocate Charge</Button>
+          )}
           <Button variant="outline" size="sm" onClick={printStatement} disabled={!student}><Printer className="w-4 h-4 mr-1" /> Print</Button>
           <Button variant="outline" size="sm" onClick={downloadPDF} disabled={!student}><Download className="w-4 h-4 mr-1" /> PDF</Button>
         </div>
@@ -565,7 +572,7 @@ const FeeStatementPage = () => {
                             : <Badge variant="default" className="text-[10px]">Active</Badge>}
                         </TableCell>
                         <TableCell className="text-right">
-                          {!c.voided && (
+                          {!c.voided && canManageCharges && (
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Void charge" onClick={() => handleVoidAdHoc(c)}>
                               <Ban className="w-4 h-4" />
                             </Button>

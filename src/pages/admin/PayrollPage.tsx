@@ -75,7 +75,8 @@ const authorizationSummary = (run: PayrollRun, workflowSteps: PayrollWorkflowSte
 
 const PayrollPage = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const canRun = hasPermission("PAYROLL_RUN");
   const { payrollHistory, workflowSteps, makers, generateRun, refreshRuns } = usePayroll();
   const [statusTab, setStatusTab] = useState<PayrollRunStatus | "ALL">("ALL");
   const [busy, setBusy] = useState(false);
@@ -150,7 +151,7 @@ const PayrollPage = () => {
             <Button size="sm" variant="outline" onClick={() => navigate(`/admin/payroll/runs/${activeRunForMonth.id}`)}>
               <History className="w-4 h-4 mr-1" /> Open {currentMonthLabel} run ({STATUS_LABEL[activeRunForMonth.status]})
             </Button>
-          ) : isMakerUser ? (
+          ) : !canRun ? null : isMakerUser ? (
             <Button size="sm" onClick={handleGenerate} disabled={busy}><Calculator className="w-4 h-4 mr-1" /> Generate Payroll</Button>
           ) : (
             <Button size="sm" disabled title="You're not set up as a payroll maker — ask an admin to add you under Payroll Setup → Approval Workflow">

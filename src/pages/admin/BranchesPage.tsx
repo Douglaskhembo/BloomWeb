@@ -8,6 +8,7 @@ import AddBranchModal, { BranchFormValue } from "@/components/modals/AddBranchMo
 import AssignItemsModal from "@/components/modals/AssignItemsModal";
 import { SchoolApi } from "@/services/api";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Branch {
   uuid: string; name: string; code: string; location: string; phone: string; active: boolean;
@@ -17,6 +18,8 @@ interface Department { uuid: string; name: string; code: string; head: string; }
 interface GradeLevel { uuid: string; name: string; order: number; streams: number; }
 
 const BranchesPage = () => {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SCHOOL_SETUP");
   const [branches, setBranches] = useState<Branch[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [grades, setGrades] = useState<GradeLevel[]>([]);
@@ -91,18 +94,22 @@ const BranchesPage = () => {
               <CardDescription>{selected.location} · {selected.phone}</CardDescription>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={() => { setEditing(selected); setAddOpen(true); }}>
-            <Pencil className="w-4 h-4 mr-1" /> Edit Branch
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="outline" onClick={() => { setEditing(selected); setAddOpen(true); }}>
+              <Pencil className="w-4 h-4 mr-1" /> Edit Branch
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Departments */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-medium text-sm">Departments ({assignedDepts.length})</h3>
-              <Button size="sm" variant="outline" onClick={() => setAssignDeptOpen(true)}>
-                <Plus className="w-4 h-4 mr-1" /> Assign
-              </Button>
+              {canManage && (
+                <Button size="sm" variant="outline" onClick={() => setAssignDeptOpen(true)}>
+                  <Plus className="w-4 h-4 mr-1" /> Assign
+                </Button>
+              )}
             </div>
             <Table>
               <TableHeader>
@@ -133,9 +140,11 @@ const BranchesPage = () => {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-medium text-sm">Grade Levels ({assignedGrades.length})</h3>
-              <Button size="sm" variant="outline" onClick={() => setAssignGradeOpen(true)}>
-                <Plus className="w-4 h-4 mr-1" /> Assign
-              </Button>
+              {canManage && (
+                <Button size="sm" variant="outline" onClick={() => setAssignGradeOpen(true)}>
+                  <Plus className="w-4 h-4 mr-1" /> Assign
+                </Button>
+              )}
             </div>
             <Table>
               <TableHeader>
@@ -201,9 +210,11 @@ const BranchesPage = () => {
           <CardTitle className="text-lg flex items-center gap-2"><Building2 className="w-5 h-5" /> Branches</CardTitle>
           <CardDescription>Click a branch to assign departments and grade levels.</CardDescription>
         </div>
-        <Button size="sm" onClick={() => { setEditing(null); setAddOpen(true); }}>
-          <Plus className="w-4 h-4 mr-1" /> Add Branch
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => { setEditing(null); setAddOpen(true); }}>
+            <Plus className="w-4 h-4 mr-1" /> Add Branch
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         <Table>
@@ -232,17 +243,19 @@ const BranchesPage = () => {
                   <Badge variant={b.active ? "default" : "secondary"}>{b.active ? "Active" : "Inactive"}</Badge>
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" className="h-8" onClick={() => handleToggle(b.uuid)}>
-                      {b.active ? "Deactivate" : "Activate"}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(b); setAddOpen(true); }}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(b.uuid)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {canManage && (
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" className="h-8" onClick={() => handleToggle(b.uuid)}>
+                        {b.active ? "Deactivate" : "Activate"}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditing(b); setAddOpen(true); }}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(b.uuid)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

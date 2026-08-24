@@ -16,6 +16,7 @@ import { getBackendErrorMessage } from "@/utils/errorHandler";
 import { fingerprintScanner, isFingerprintScannerSupported } from "@/lib/fingerprintScanner";
 import { Combobox } from "@/components/ui/combobox";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 const FINGER_NAMES = ["THUMB", "INDEX", "MIDDLE", "RING", "LITTLE"];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -597,6 +598,8 @@ const studentConfig: OwnerConfig = {
 
 const BiometricsSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManageAttendance = hasPermission("ATTENDANCE_MANAGE");
   const [scannerConnected, setScannerConnected] = useState(fingerprintScanner.connected);
   const [connecting, setConnecting] = useState(false);
 
@@ -651,8 +654,24 @@ const BiometricsSetupPage = () => {
         </TabsList>
         <TabsContent value="staff" className="mt-4"><EnrollmentPanel config={staffConfig} scannerConnected={scannerConnected} /></TabsContent>
         <TabsContent value="students" className="mt-4"><EnrollmentPanel config={studentConfig} scannerConnected={scannerConnected} /></TabsContent>
-        <TabsContent value="devices" className="mt-4"><DevicesPanel /></TabsContent>
-        <TabsContent value="classteachers" className="mt-4"><ClassTeachersPanel /></TabsContent>
+        <TabsContent value="devices" className="mt-4">
+          {canManageAttendance ? <DevicesPanel /> : (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                You don't have permission to view or manage biometric devices.
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        <TabsContent value="classteachers" className="mt-4">
+          {canManageAttendance ? <ClassTeachersPanel /> : (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                You don't have permission to view or manage class teacher assignments.
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );

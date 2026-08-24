@@ -6,21 +6,27 @@ import { Bell, Shield } from "lucide-react";
 import { NotificationApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import NotificationPreferencesCard from "@/components/notifications/NotificationPreferencesCard";
+import { useAuth } from "@/context/AuthContext";
 import Swal from "sweetalert2";
 
 type ChannelSettings = { smsEnabled: boolean; whatsappEnabled: boolean; emailEnabled: boolean; inAppEnabled: boolean };
 
 const SettingsPage = () => {
+  const { hasPermission } = useAuth();
+  // Both the GET and PUT for org-wide channel settings require NOTIFICATIONS_MANAGE on the
+  // backend — the personal-preferences card below has no such gate and stays open to anyone.
+  const canManageNotifications = hasPermission("NOTIFICATIONS_MANAGE");
   const [channels, setChannels] = useState<ChannelSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingChannel, setSavingChannel] = useState<keyof ChannelSettings | null>(null);
 
   useEffect(() => {
+    if (!canManageNotifications) { setLoading(false); return; }
     NotificationApi.getChannelSettings()
       .then((res) => setChannels({ smsEnabled: !!res.smsEnabled, whatsappEnabled: !!res.whatsappEnabled, emailEnabled: !!res.emailEnabled, inAppEnabled: res.inAppEnabled !== false }))
       .catch((err) => Swal.fire({ icon: "error", title: "Couldn't load notification channel settings", text: getBackendErrorMessage(err), showConfirmButton: true }))
       .finally(() => setLoading(false));
-  }, []);
+  }, [canManageNotifications]);
 
   const handleToggle = async (field: keyof ChannelSettings, checked: boolean) => {
     if (!channels) return;
@@ -45,36 +51,38 @@ const SettingsPage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2"><Bell className="w-4 h-4" /> Notification Channels</CardTitle>
-            <CardDescription>Turn on the channels available school-wide — staff and parents can only select a channel here once it's enabled</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {loading || !channels ? (
-              <p className="text-sm text-muted-foreground py-4">Loading...</p>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <Label>In-App</Label>
-                  <Switch checked={channels.inAppEnabled} disabled={savingChannel === "inAppEnabled"} onCheckedChange={(c) => handleToggle("inAppEnabled", c)} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>Email</Label>
-                  <Switch checked={channels.emailEnabled} disabled={savingChannel === "emailEnabled"} onCheckedChange={(c) => handleToggle("emailEnabled", c)} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>SMS</Label>
-                  <Switch checked={channels.smsEnabled} disabled={savingChannel === "smsEnabled"} onCheckedChange={(c) => handleToggle("smsEnabled", c)} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>WhatsApp</Label>
-                  <Switch checked={channels.whatsappEnabled} disabled={savingChannel === "whatsappEnabled"} onCheckedChange={(c) => handleToggle("whatsappEnabled", c)} />
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        {canManageNotifications && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><Bell className="w-4 h-4" /> Notification Channels</CardTitle>
+              <CardDescription>Turn on the channels available school-wide — staff and parents can only select a channel here once it's enabled</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loading || !channels ? (
+                <p className="text-sm text-muted-foreground py-4">Loading...</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <Label>In-App</Label>
+                    <Switch checked={channels.inAppEnabled} disabled={savingChannel === "inAppEnabled"} onCheckedChange={(c) => handleToggle("inAppEnabled", c)} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>Email</Label>
+                    <Switch checked={channels.emailEnabled} disabled={savingChannel === "emailEnabled"} onCheckedChange={(c) => handleToggle("emailEnabled", c)} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>SMS</Label>
+                    <Switch checked={channels.smsEnabled} disabled={savingChannel === "smsEnabled"} onCheckedChange={(c) => handleToggle("smsEnabled", c)} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label>WhatsApp</Label>
+                    <Switch checked={channels.whatsappEnabled} disabled={savingChannel === "whatsappEnabled"} onCheckedChange={(c) => handleToggle("whatsappEnabled", c)} />
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

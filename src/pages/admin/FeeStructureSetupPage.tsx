@@ -178,7 +178,7 @@ const toAuditEntry = (raw: any): AuditEntry => ({
 
 const FeeStructureSetupPage = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
 
   const { escapeHtml, openPrintDocument } = usePrintDocument();
   const [feeItems, setFeeItems] = useState<ReturnType<typeof toFeeItem>[]>([]);
@@ -289,8 +289,8 @@ const FeeStructureSetupPage = () => {
   }, [structures]);
 
   const currentUserName = user?.userName ?? "";
-  const isMaker = user?.permissions?.includes("FEES_MANAGE") ?? false;
-  const isApprover = user?.permissions?.includes("FEES_APPROVE") ?? false;
+  const isMaker = hasPermission("FEES_MANAGE");
+  const isApprover = hasPermission("FEES_APPROVE");
   // A submittable structure record is still always exactly one grade + one term on the backend,
   // so "all" fans out into one record per matching grade×term combo rather than a single record.
   const isAllGrades = selectedGrade === "all";

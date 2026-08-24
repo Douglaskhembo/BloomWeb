@@ -12,6 +12,7 @@ import Swal from "sweetalert2";
 import { SchoolApi, PayrollApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface Bank { uuid: string; name: string; }
 interface BankAccount {
@@ -27,6 +28,11 @@ interface BankAccount {
 const emptyForm = { bankUuid: "", accountNumber: "", accountName: "", branch: "" };
 
 const SchoolBankAccountsPage = () => {
+  const { hasPermission } = useAuth();
+  // This component's own page requires PAYROLL_STAFF_PAYMENT_MANAGE for its backend endpoints
+  // (see SchoolController.java bank-accounts endpoints) — defense in depth in case this is ever
+  // rendered directly rather than only inside the SchoolSetupPage tab that already hides it.
+  const canManage = hasPermission("PAYROLL_STAFF_PAYMENT_MANAGE");
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [open, setOpen] = useState(false);
@@ -94,7 +100,7 @@ const SchoolBankAccountsPage = () => {
             it's written to the "Debit Account" column of the bank submission file.
           </CardDescription>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Account</Button>
+        {canManage && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Account</Button>}
       </CardHeader>
       <CardContent>
         <Table>
@@ -120,15 +126,17 @@ const SchoolBankAccountsPage = () => {
                 <TableCell className="text-center">
                   {a.useForPayroll ? (
                     <Badge className="text-[10px] gap-1"><CheckCircle2 className="w-3 h-3" /> In use</Badge>
-                  ) : (
+                  ) : canManage ? (
                     <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => useForPayroll(a)}>Use for payroll</Button>
-                  )}
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(a)}><Pencil className="w-3.5 h-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(a)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                  </div>
+                  {canManage && (
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(a)}><Pencil className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(a)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

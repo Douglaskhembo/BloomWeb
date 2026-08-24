@@ -15,6 +15,7 @@ import { SchoolEventFormValues } from "@/components/forms/SchoolEventForm";
 import { AcademicCalendarApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 interface TermPeriod { id: number; academicYear: number; term: string; startDate: string; endDate: string; }
 interface SchoolEvent { id: number; name: string; startDate: string; endDate: string; active: boolean; }
@@ -45,6 +46,8 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { y
 
 const AcademicCalendarSetupPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("SETUP_MANAGE");
   const [activeTab, setActiveTab] = useState<"terms" | "events">("terms");
 
   const [termPeriods, setTermPeriods] = useState<TermPeriod[]>([]);
@@ -212,7 +215,7 @@ const AcademicCalendarSetupPage = () => {
                 <CardTitle className="text-lg">Term Periods</CardTitle>
                 <CardDescription>Start and end dates per academic year — re-enter each year since the government calendar shifts.</CardDescription>
               </div>
-              <Button size="sm" onClick={openAddTerm}><Plus className="h-4 w-4" /> Add Term Period</Button>
+              {canManage && <Button size="sm" onClick={openAddTerm}><Plus className="h-4 w-4" /> Add Term Period</Button>}
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -240,10 +243,12 @@ const AcademicCalendarSetupPage = () => {
                         <TableCell className="text-sm text-muted-foreground">{fmtDate(tp.endDate)}</TableCell>
                         <TableCell className="text-sm">{formatDuration(tp.startDate, tp.endDate)}</TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditTerm(tp)}><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteTermPeriod(tp)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
+                          {canManage && (
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditTerm(tp)}><Pencil className="h-3.5 w-3.5" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteTermPeriod(tp)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -263,7 +268,7 @@ const AcademicCalendarSetupPage = () => {
                 <CardTitle className="text-lg">School Events</CardTitle>
                 <CardDescription>Non-holiday calendar markers — mid-term breaks, opening/closing days, exam weeks.</CardDescription>
               </div>
-              <Button size="sm" onClick={openAddEvent}><Plus className="h-4 w-4" /> Add Event</Button>
+              {canManage && <Button size="sm" onClick={openAddEvent}><Plus className="h-4 w-4" /> Add Event</Button>}
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -290,15 +295,21 @@ const AcademicCalendarSetupPage = () => {
                         <TableCell className="text-sm text-muted-foreground">{fmtDate(ev.endDate)}</TableCell>
                         <TableCell className="text-sm">{formatDuration(ev.startDate, ev.endDate)}</TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={ev.active ? "default" : "secondary"} className="cursor-pointer" onClick={() => toggleEvent(ev.id)}>
+                          <Badge
+                            variant={ev.active ? "default" : "secondary"}
+                            className={canManage ? "cursor-pointer" : undefined}
+                            onClick={canManage ? () => toggleEvent(ev.id) : undefined}
+                          >
                             {ev.active ? "Active" : "Inactive"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditEvent(ev)}><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteEvent(ev)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
+                          {canManage && (
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditEvent(ev)}><Pencil className="h-3.5 w-3.5" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteEvent(ev)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

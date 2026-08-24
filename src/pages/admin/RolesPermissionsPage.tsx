@@ -10,8 +10,14 @@ import { RoleApi, ModuleApi, PermissionApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
 import Pagination from "@/utils/Pagination";
 import Swal from "sweetalert2";
+import { useAuth } from "@/context/AuthContext";
 
 const RolesPermissionsPage = () => {
+  const { hasPermission } = useAuth();
+  const canCreateRole      = hasPermission("ROLE_CREATE");
+  const canEditRole        = hasPermission("ROLE_EDIT");
+  const canDeleteRole      = hasPermission("ROLE_DELETE");
+  const canAssignPermission = hasPermission("PERMISSION_ASSIGN");
   const [roles, setRoles]               = useState<any[]>([]);
   const [search, setSearch]             = useState("");
   const [selectedRole, setSelectedRole] = useState<any | null>(null);
@@ -137,7 +143,7 @@ const RolesPermissionsPage = () => {
           <h1 className="text-2xl font-bold tracking-tight">Roles & Permissions</h1>
           <p className="text-muted-foreground">Define roles and control module access</p>
         </div>
-        <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Role</Button>
+        {canCreateRole && <Button size="sm" onClick={openAdd}><Plus className="w-4 h-4 mr-1" /> Add Role</Button>}
       </div>
 
       {/* ── Roles table ── */}
@@ -168,12 +174,16 @@ const RolesPermissionsPage = () => {
                   className={`cursor-pointer hover:bg-muted ${selectedRole?.uuid === role.uuid ? "bg-muted" : ""}`}>
                   <TableCell className="font-medium">{role.name ?? role.roleName}</TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={e => openEdit(role, e)}>
-                      <Edit className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={e => handleDelete(role, e)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    {canEditRole && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" onClick={e => openEdit(role, e)}>
+                        <Edit className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    {canDeleteRole && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={e => handleDelete(role, e)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -235,7 +245,7 @@ const RolesPermissionsPage = () => {
                       <TableCell className="text-sm text-muted-foreground">{perm.permDesc}</TableCell>
                       <TableCell className="text-sm">{perm.accessType}</TableCell>
                       <TableCell className="text-right">
-                        {perm.granted ? (
+                        {canAssignPermission && (perm.granted ? (
                           <Button size="sm" variant="destructive" onClick={() => handleRevoke(perm.permUuid ?? perm.uuid)}>
                             Revoke
                           </Button>
@@ -243,7 +253,7 @@ const RolesPermissionsPage = () => {
                           <Button size="sm" onClick={() => handleGrant(perm.permUuid ?? perm.uuid)}>
                             Grant
                           </Button>
-                        )}
+                        ))}
                       </TableCell>
                     </TableRow>
                   ))}

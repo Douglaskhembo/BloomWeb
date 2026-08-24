@@ -14,6 +14,7 @@ import { emptyStaff, StaffFormData } from "@/components/forms/StaffForm";
 import { StaffApi, SubjectApi, StaffRoleApi } from "@/services/api";
 import Pagination from "@/utils/Pagination";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
+import { useAuth } from "@/context/AuthContext";
 
 interface SubjectOption { uuid: string; name: string; active: boolean; }
 interface StaffRoleOption { uuid: string; name: string; active: boolean; }
@@ -79,6 +80,8 @@ const toRequest = (data: StaffFormData, subjects: SubjectOption[], staffRoles: S
 });
 
 const TeachersPage = () => {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("STAFF_MANAGE");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -200,7 +203,7 @@ const TeachersPage = () => {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-1" /> Export</Button>
-          <Button size="sm" onClick={handleOpenAdd}><Plus className="w-4 h-4 mr-1" /> Add Staff</Button>
+          {canManage && <Button size="sm" onClick={handleOpenAdd}><Plus className="w-4 h-4 mr-1" /> Add Staff</Button>}
         </div>
       </div>
 
@@ -261,8 +264,8 @@ const TeachersPage = () => {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleView(s)}><Eye className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(s)}><Pencil className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(s)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                        {canManage && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEdit(s)}><Pencil className="w-3.5 h-3.5" /></Button>}
+                        {canManage && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(s)}><Trash2 className="w-3.5 h-3.5" /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -282,6 +285,7 @@ const TeachersPage = () => {
         onEdit={handleEdit}
         onDelete={handleDelete}
         onStatusChange={handleStatusChange}
+        canManage={canManage}
       />
 
       <StaffFormModal
