@@ -42,7 +42,7 @@ import { usePrintDocument } from "@/hooks/usePrintDocument";
 
 const emptyForm: FeeItemFormValues = {
   name: "", grades: [], amount: 0, term: "Per Term", term1Amount: "", term2Amount: "", term3Amount: "",
-  category: "OTHER", mandatory: true, active: true,
+  category: "", applicability: "ALL", mandatory: true, active: true,
 };
 interface GradeLevelOption { uuid: string; name: string; active: boolean; }
 const toGradeLevelOption = (raw: any): GradeLevelOption => ({
@@ -132,6 +132,7 @@ const toFeeItem = (raw: any) => ({
   term2Amount: raw.term2Amount ?? undefined,
   term3Amount: raw.term3Amount ?? undefined,
   category: raw.category ?? "OTHER",
+  applicability: raw.applicability ?? "ALL",
   mandatory: raw.mandatory ?? true,
   active: Boolean(raw.active),
 });
@@ -903,7 +904,7 @@ const FeeStructureSetupPage = () => {
       term1Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 1")) : "",
       term2Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 2")) : "",
       term3Amount: feeItem.term === "Per Term" ? String(resolveAmount(feeItem, "Term 3")) : "",
-      category: feeItem.category, mandatory: feeItem.mandatory, active: feeItem.active,
+      category: feeItem.category, applicability: feeItem.applicability, mandatory: feeItem.mandatory, active: feeItem.active,
     });
     setOpen(true);
   };
@@ -923,7 +924,7 @@ const FeeStructureSetupPage = () => {
       term1Amount: isPerTerm ? Number(form.term1Amount || 0) : null,
       term2Amount: isPerTerm ? Number(form.term2Amount || 0) : null,
       term3Amount: isPerTerm ? Number(form.term3Amount || 0) : null,
-      category: form.category, mandatory: form.mandatory, active: form.active, gradeLevelUuids,
+      category: form.category, applicability: form.applicability, mandatory: form.mandatory, active: form.active, gradeLevelUuids,
     };
     try {
       if (editingId !== null) {

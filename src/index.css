@@ -119,3 +119,10 @@
 .swal2-container {
   pointer-events: auto !important;
 }
+
+/* Tell the browser this page is dark in .dark mode, so native controls it draws itself —
+   the date/time picker calendar icon, scrollbars — use light-on-dark styling instead of
+   their default dark-on-transparent glyph, which is invisible against a dark background. */
+.dark {
+  color-scheme: dark;
+}

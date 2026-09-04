@@ -24,6 +24,7 @@ const FeeItemFormModal = ({ open, onOpenChange, isEditing, value, onChange, onSu
         <Button
           onClick={onSubmit}
           disabled={
+            !value.category ||
             !value.name ||
             (value.term === "Per Term"
               ? !value.term1Amount || !value.term2Amount || !value.term3Amount
