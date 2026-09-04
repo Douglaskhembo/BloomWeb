@@ -167,7 +167,10 @@ const TransportPage = () => {
   // ── Enrollment ────────────────────────────────────────────────────────────
 
   const enrolledStudentUuids = useMemo(() => enrollments.map(e => e.student?.uuid), [enrollments]);
-  const unenrolledStudents = useMemo(() => students.filter(s => !enrolledStudentUuids.includes(s.uuid)), [students, enrolledStudentUuids]);
+  const unenrolledStudents = useMemo(
+    () => students.filter(s => !enrolledStudentUuids.includes(s.uuid) && s.boarderStatus !== "BOARDER"),
+    [students, enrolledStudentUuids]
+  );
   const currentPickups = useMemo(() => routes.find(r => r.uuid === selectedRouteUuid)?.pickupPoints ?? [], [routes, selectedRouteUuid]);
 
   const handleEnroll = async () => {

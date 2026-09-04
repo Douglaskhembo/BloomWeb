@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, GraduationCap, DollarSign, Wallet, AlertCircle, AlertTriangle, BookOpen, BarChart3, Percent } from "lucide-react";
+import { Users, GraduationCap, DollarSign, Wallet, AlertCircle, AlertTriangle, BookOpen, BarChart3, Percent, X } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useStudentContext, STAGE_LABELS } from "@/context/StudentContext";
-import { StaffApi, FeeApi, AttendanceReportApi } from "@/services/api";
+import { StaffApi, FeeApi, AttendanceReportApi, AcademicCalendarApi } from "@/services/api";
 import { FeeArrearsRow, FeeCollectionSummaryRow } from "@/lib/feeReportExport";
 import { useAuth } from "@/context/AuthContext";
 
@@ -14,6 +17,7 @@ const STAGE_BADGE: Record<string, "default" | "secondary" | "outline" | "destruc
   APPLICATION_REVIEW: "secondary", INTERVIEW_SCHEDULED: "outline", OFFER_SENT: "default", FEE_PAYMENT: "outline", ENROLLED: "default",
 };
 
+const TERMS = ["Term 1", "Term 2", "Term 3", "Full Year"];
 const money = (v: number) => `KES ${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const monthStartISO = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); };
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -31,7 +35,9 @@ const AdminDashboard = () => {
 
   const [teacherCount, setTeacherCount] = useState(0);
   const [teachersOnLeave, setTeachersOnLeave] = useState(0);
-  const [period, setPeriod] = useState<{ academicYear: number; term: string } | null>(null);
+  const [currentTerm, setCurrentTerm] = useState<{ academicYear: number; term: string } | null>(null);
+  const [manualPeriod, setManualPeriod] = useState<{ academicYear: number; term: string } | null>(null);
+  const period = manualPeriod ?? currentTerm;
   const [collectionSummary, setCollectionSummary] = useState<FeeCollectionSummaryRow[]>([]);
   const [collectionTrend, setCollectionTrend] = useState<{ month: string; collected: number }[]>([]);
   const [topArrears, setTopArrears] = useState<FeeArrearsRow[]>([]);
@@ -55,11 +61,12 @@ const AdminDashboard = () => {
 
     if (canViewFees) {
       FeeApi.getCollectionTrend(6).then(setCollectionTrend);
-      FeeApi.getStructures().then((structures: any[]) => {
-        const approved = structures.filter((s) => s.status === "APPROVED");
-        if (approved.length === 0) { setLoadingFees(false); return; }
-        approved.sort((a, b) => new Date(b.reviewedAt ?? b.updatedAt).getTime() - new Date(a.reviewedAt ?? a.updatedAt).getTime());
-        setPeriod({ academicYear: approved[0].academicYear, term: approved[0].term });
+      AcademicCalendarApi.getCurrentTerm().then((current) => {
+        if (current.term && current.academicYear) {
+          setCurrentTerm({ academicYear: current.academicYear, term: current.term });
+        } else {
+          setLoadingFees(false);
+        }
       });
     } else {
       setLoadingFees(false);
@@ -104,10 +111,7 @@ const AdminDashboard = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Welcome back! Here's what's happening at your school today.
-          {period && <span className="ml-1">Fee figures below are for {period.term}, {period.academicYear} — the most recently approved period.</span>}
-        </p>
+        <p className="text-muted-foreground">Welcome back! Here's what's happening at your school today.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -131,8 +135,36 @@ const AdminDashboard = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><DollarSign className="w-4 h-4" /> Fee Collection by Grade</CardTitle>
-              <CardDescription>{period ? `Expected vs collected — ${period.term}, ${period.academicYear}` : "No approved fee structure found yet"}</CardDescription>
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2"><DollarSign className="w-4 h-4" /> Fee Collection by Grade</CardTitle>
+                  <CardDescription>
+                    {period
+                      ? `Expected vs collected — ${period.term}, ${period.academicYear}${!manualPeriod ? " (current term)" : ""}`
+                      : "Current academic term is not configured yet"}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={period?.term ?? ""}
+                    onValueChange={(t) => setManualPeriod({ academicYear: period?.academicYear ?? new Date().getFullYear(), term: t })}
+                  >
+                    <SelectTrigger className="w-[110px] h-8 text-xs"><SelectValue placeholder="Term" /></SelectTrigger>
+                    <SelectContent>{TERMS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    className="w-[90px] h-8 text-xs"
+                    value={period?.academicYear ?? ""}
+                    onChange={(e) => setManualPeriod({ academicYear: Number(e.target.value), term: period?.term ?? TERMS[0] })}
+                  />
+                  {manualPeriod && (
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Reset to current term" onClick={() => setManualPeriod(null)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {byGrade.length === 0 ? (
