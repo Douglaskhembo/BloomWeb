@@ -7,8 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Search, Download, Wallet, TrendingUp, TrendingDown, PieChart } from "lucide-react";
-import { FeeApi } from "@/services/api";
+import { ArrowLeft, Download, Wallet, TrendingUp, TrendingDown, PieChart } from "lucide-react";
+import { FeeApi, AcademicCalendarApi } from "@/services/api";
 import { downloadFeeCollectionSummaryReport, FeeCollectionSummaryRow } from "@/lib/feeReportExport";
 import StatCard from "@/components/dashboard/StatCard";
 import Swal from "sweetalert2";
@@ -18,14 +18,16 @@ const money = (v: number) => `KES ${v.toLocaleString(undefined, { minimumFractio
 
 const FeeCollectionSummaryPage = () => {
   const navigate = useNavigate();
-  const [academicYear, setAcademicYear] = useState(new Date().getFullYear());
-  const [term, setTerm] = useState("Term 1");
+  const [academicYear, setAcademicYear] = useState<number | null>(null);
+  const [term, setTerm] = useState<string>("");
+  const [usingCurrentTerm, setUsingCurrentTerm] = useState(true);
   const [rows, setRows] = useState<FeeCollectionSummaryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState<"csv" | "excel" | "pdf">("pdf");
 
   const search = async () => {
+    if (!academicYear || !term) return;
     setLoading(true);
     try {
       setRows(await FeeApi.getCollectionSummary(academicYear, term));
@@ -34,7 +36,15 @@ const FeeCollectionSummaryPage = () => {
     }
   };
 
-  useEffect(() => { search(); }, []);
+  useEffect(() => {
+    AcademicCalendarApi.getCurrentTerm().then((current) => {
+      setAcademicYear(current.academicYear ?? new Date().getFullYear());
+      setTerm(current.term ?? "Term 1");
+    });
+  }, []);
+
+  // Live-updates on year/term change, same as the Dashboard's fee widget — no separate "Generate" click needed.
+  useEffect(() => { search(); }, [academicYear, term]);
 
   const totals = rows.reduce(
     (acc, r) => ({ expected: acc.expected + r.expected, collected: acc.collected + r.collected, balance: acc.balance + r.balance }),
@@ -63,20 +73,41 @@ const FeeCollectionSummaryPage = () => {
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Filters</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Filters</CardTitle>
+          {usingCurrentTerm && term && <p className="text-xs text-muted-foreground">Showing the current term — change Year/Term below to view a different period.</p>}
+        </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
           <div className="space-y-1">
             <Label className="text-xs">Academic Year</Label>
-            <Input type="number" value={academicYear} onChange={(e) => setAcademicYear(Number(e.target.value))} />
+            <Input
+              type="number"
+              value={academicYear ?? ""}
+              onChange={(e) => { setUsingCurrentTerm(false); setAcademicYear(Number(e.target.value)); }}
+            />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Term</Label>
-            <Select value={term} onValueChange={setTerm}>
+            <Select value={term} onValueChange={(t) => { setUsingCurrentTerm(false); setTerm(t); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{TERMS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <Button size="sm" onClick={search}><Search className="w-4 h-4 mr-1" /> Generate</Button>
+          {!usingCurrentTerm && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setUsingCurrentTerm(true);
+                AcademicCalendarApi.getCurrentTerm().then((current) => {
+                  setAcademicYear(current.academicYear ?? new Date().getFullYear());
+                  setTerm(current.term ?? "Term 1");
+                });
+              }}
+            >
+              Reset to current term
+            </Button>
+          )}
         </CardContent>
       </Card>
 

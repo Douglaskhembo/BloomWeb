@@ -20,10 +20,19 @@ import AttendanceChecklist, { ChecklistRow, StatusOption } from "@/components/at
 
 const EMPTY_FORM = { name: "", driverUuid: "", vehicle: "", capacity: "", fare: "", status: "ACTIVE", pickupPoints: [] as string[] };
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const BOARDING_STATUS_OPTIONS: StatusOption[] = [
-  { value: "BOARDED", label: "Boarded", activeClassName: "bg-green-600 text-white hover:bg-green-600" },
-  { value: "ABSENT", label: "Absent", activeClassName: "bg-red-600 text-white hover:bg-red-600" },
-];
+// "Boarded"/"Absent" reads fine for Pickup but is ambiguous for Drop-off (you didn't "board" at
+// drop-off), so labels are direction-specific — Picked/Not Picked vs Dropped/Not Dropped — while the
+// underlying status values sent to the backend stay BOARDED/ABSENT either way.
+const boardingStatusOptions = (direction: "PICKUP" | "DROP_OFF"): StatusOption[] =>
+  direction === "PICKUP"
+    ? [
+        { value: "BOARDED", label: "Picked", activeClassName: "bg-green-600 text-white hover:bg-green-600" },
+        { value: "ABSENT", label: "Not Picked", activeClassName: "bg-red-600 text-white hover:bg-red-600" },
+      ]
+    : [
+        { value: "BOARDED", label: "Dropped", activeClassName: "bg-green-600 text-white hover:bg-green-600" },
+        { value: "ABSENT", label: "Not Dropped", activeClassName: "bg-red-600 text-white hover:bg-red-600" },
+      ];
 
 const TransportPage = () => {
   const { hasPermission } = useAuth();
@@ -77,6 +86,8 @@ const TransportPage = () => {
     setAttRegister((rs) => rs.map((r) => (r.studentUuid === studentUuid ? { ...r, status } : r)));
   };
   const attMarkedCount = attRegister.filter((r) => r.status).length;
+  const attBoardedCount = attRegister.filter((r) => r.status === "BOARDED").length;
+  const attAbsentCount = attRegister.filter((r) => r.status === "ABSENT").length;
 
   const handleSaveAttendance = async () => {
     if (attSaving) return;
@@ -390,10 +401,20 @@ const TransportPage = () => {
                 <p className="text-sm text-muted-foreground text-center py-6">Loading...</p>
               ) : (
                 <>
-                  <p className="text-xs text-muted-foreground">{attMarkedCount} of {attRegister.length} marked</p>
+                  <p className="text-xs text-muted-foreground">
+                    {attMarkedCount} of {attRegister.length} marked
+                    {attMarkedCount > 0 && (
+                      <>
+                        {" — "}
+                        <span className="text-green-600 font-medium">{attBoardedCount} {attDirection === "PICKUP" ? "Picked" : "Dropped"}</span>
+                        {", "}
+                        <span className="text-red-600 font-medium">{attAbsentCount} {attDirection === "PICKUP" ? "Not Picked" : "Not Dropped"}</span>
+                      </>
+                    )}
+                  </p>
                   <AttendanceChecklist
                     rows={attRegister}
-                    statusOptions={BOARDING_STATUS_OPTIONS}
+                    statusOptions={boardingStatusOptions(attDirection)}
                     onStatusChange={setAttRowStatus}
                     extraColumnLabel="Pickup Point"
                     extraColumn={(row) => (row as any).pickupPoint ?? "—"}

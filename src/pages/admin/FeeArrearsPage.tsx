@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ArrowLeft, Search, Download, AlertTriangle } from "lucide-react";
-import { FeeApi } from "@/services/api";
+import { FeeApi, AcademicCalendarApi } from "@/services/api";
 import { downloadFeeArrearsReport, FeeArrearsRow } from "@/lib/feeReportExport";
 import Pagination from "@/utils/Pagination";
 import Swal from "sweetalert2";
@@ -29,16 +29,26 @@ const FeeArrearsPage = () => {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState<"csv" | "excel" | "pdf">("pdf");
 
-  const search = async () => {
+  const search = async (year = academicYear, forTerm = term) => {
     setLoading(true);
     try {
-      const data = await FeeApi.getArrears({ academicYear, term, grade: grade || undefined, stream: stream || undefined });
+      const data = await FeeApi.getArrears({ academicYear: year, term: forTerm, grade: grade || undefined, stream: stream || undefined });
       setRows(data);
       setPage(1);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    AcademicCalendarApi.getCurrentTerm().then((current) => {
+      const year = current.academicYear ?? academicYear;
+      const forTerm = current.term ?? term;
+      setAcademicYear(year);
+      setTerm(forTerm);
+      search(year, forTerm);
+    });
+  }, []);
 
   const totalBalance = rows.reduce((sum, r) => sum + r.balance, 0);
   const totalPages = Math.ceil(rows.length / perPage);
@@ -80,7 +90,7 @@ const FeeArrearsPage = () => {
           </div>
           <div className="space-y-1"><Label className="text-xs">Grade (optional)</Label><Input value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="e.g. Grade 5" /></div>
           <div className="space-y-1"><Label className="text-xs">Stream (optional)</Label><Input value={stream} onChange={(e) => setStream(e.target.value)} placeholder="e.g. A" /></div>
-          <Button size="sm" onClick={search}><Search className="w-4 h-4 mr-1" /> Generate</Button>
+          <Button size="sm" onClick={() => search()}><Search className="w-4 h-4 mr-1" /> Generate</Button>
         </CardContent>
       </Card>
 

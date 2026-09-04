@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ArrowLeft, Fingerprint, ScanFace, Trash2, KeyRound, RefreshCw, UserCheck, Upload, X, Usb } from "lucide-react";
+import { ArrowLeft, Fingerprint, ScanFace, Trash2, KeyRound, RefreshCw, UserCheck, UserMinus, Upload, X, Usb, Pencil } from "lucide-react";
 import Swal from "sweetalert2";
 import { StaffApi, StudentApi, BiometricsApi, DeviceApi, ClassTeacherApi, SchoolApi } from "@/services/api";
 import { getBackendErrorMessage } from "@/utils/errorHandler";
@@ -450,6 +450,7 @@ const ClassTeachersPanel = () => {
   const [staff, setStaff] = useState<any[]>([]);
   const [grades, setGrades] = useState<{ uuid: string; name: string; displayOrder: number; streamNames: string[] }[]>([]);
   const [form, setForm] = useState({ teacherUuid: "", gradeLevelUuid: "", stream: "" });
+  const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [assignmentsPage, setAssignmentsPage] = useState(1);
   const [assignmentsPerPage, setAssignmentsPerPage] = useState(10);
 
@@ -467,11 +468,20 @@ const ClassTeachersPanel = () => {
     });
   }, []);
 
-  const teacherOptions = staff.map((s) => ({ value: s.uuid, label: `${s.firstName} ${s.lastName} (${s.staffId})` }));
+  // While editing an existing assignment, exclude it from the "already taken" sets below so its own
+  // teacher/grade/stream still show up as selectable (otherwise you couldn't leave a field unchanged).
+  const otherAssignments = assignments.filter((a) => a.uuid !== editingUuid);
+
+  // A teacher already serving as class teacher elsewhere must not be offered again — mirrors the
+  // grade/stream exclusion below (each teacher can only be class teacher for one class at a time).
+  const assignedTeacherUuids = new Set(otherAssignments.map((a) => a.teacherUuid));
+  const teacherOptions = staff
+    .filter((s) => !assignedTeacherUuids.has(s.uuid))
+    .map((s) => ({ value: s.uuid, label: `${s.firstName} ${s.lastName} (${s.staffId})` }));
 
   // A grade/stream that already has a class teacher must not be offered again — each stream (or each
   // grade with no streams) can only ever have one class teacher.
-  const assignedKeys = new Set(assignments.map((a) => `${a.gradeLevelUuid}::${a.stream ?? ""}`));
+  const assignedKeys = new Set(otherAssignments.map((a) => `${a.gradeLevelUuid}::${a.stream ?? ""}`));
   const availableStreamsFor = (grade: { uuid: string; streamNames: string[] }) =>
     grade.streamNames.filter((s) => !assignedKeys.has(`${grade.uuid}::${s}`));
 
@@ -490,16 +500,32 @@ const ClassTeachersPanel = () => {
     }
     try {
       await ClassTeacherApi.assign(form);
-      Swal.fire({ title: "Success", text: "Class teacher assigned", icon: "success", showConfirmButton: true });
+      Swal.fire({ title: "Success", text: editingUuid ? "Class teacher assignment updated" : "Class teacher assigned", icon: "success", showConfirmButton: true });
       setForm({ teacherUuid: "", gradeLevelUuid: "", stream: "" });
+      setEditingUuid(null);
       load();
     } catch (err) {
-      Swal.fire({ icon: "error", title: "Failed to assign", text: getBackendErrorMessage(err), showConfirmButton: true });
+      Swal.fire({ icon: "error", title: editingUuid ? "Failed to update" : "Failed to assign", text: getBackendErrorMessage(err), showConfirmButton: true });
     }
   };
 
+  const handleEditClick = (a: any) => {
+    setEditingUuid(a.uuid);
+    setForm({ teacherUuid: a.teacherUuid, gradeLevelUuid: a.gradeLevelUuid, stream: a.stream ?? "" });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingUuid(null);
+    setForm({ teacherUuid: "", gradeLevelUuid: "", stream: "" });
+  };
+
   const handleUnassign = async (uuid: string) => {
-    try { await ClassTeacherApi.unassign(uuid); Swal.fire({ title: "Success", text: "Assignment removed", icon: "success", showConfirmButton: true }); load(); }
+    try {
+      await ClassTeacherApi.unassign(uuid);
+      Swal.fire({ title: "Success", text: "Assignment removed", icon: "success", showConfirmButton: true });
+      if (editingUuid === uuid) handleCancelEdit();
+      load();
+    }
     catch (err) { Swal.fire({ icon: "error", title: "Failed to remove", text: getBackendErrorMessage(err), showConfirmButton: true }); }
   };
 
@@ -509,7 +535,7 @@ const ClassTeachersPanel = () => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <Card>
-        <CardHeader><CardTitle className="text-base">Assign Class Teacher</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{editingUuid ? "Edit Class Teacher Assignment" : "Assign Class Teacher"}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-2">
             <Label>Teacher</Label>
@@ -546,7 +572,12 @@ const ClassTeachersPanel = () => {
               />
             </div>
           )}
-          <Button onClick={handleAssign} className="w-full"><UserCheck className="w-4 h-4 mr-1" /> Assign</Button>
+          <div className="flex gap-2">
+            <Button onClick={handleAssign} className="w-full">
+              <UserCheck className="w-4 h-4 mr-1" /> {editingUuid ? "Save Changes" : "Assign"}
+            </Button>
+            {editingUuid && <Button variant="outline" onClick={handleCancelEdit}>Cancel</Button>}
+          </div>
         </CardContent>
       </Card>
 
@@ -564,7 +595,8 @@ const ClassTeachersPanel = () => {
                   <TableCell className="text-muted-foreground text-xs">{a.staffId}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px]">{a.grade} {a.stream}</Badge></TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleUnassign(a.uuid)}><Trash2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit" onClick={() => handleEditClick(a)}><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Unassign" onClick={() => handleUnassign(a.uuid)}><UserMinus className="w-4 h-4" /></Button>
                   </TableCell>
                 </TableRow>
               ))}
