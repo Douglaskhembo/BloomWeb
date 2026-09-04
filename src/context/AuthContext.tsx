@@ -38,14 +38,46 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const IDLE_WARNING_MS = 60 * 1000;
 const ACTIVITY_EVENTS: (keyof DocumentEventMap)[] = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'wheel'];
 const ACTIVITY_THROTTLE_MS = 1000;
-const LS_LAST_ACTIVITY = 'bloom_last_activity';
-const LS_IDLE_LOGOUT = 'bloom_idle_logout';
+const EXPIRY_CHECK_INTERVAL_MS = 30 * 1000;
+
+// Reads the `exp` claim out of a JWT without verifying its signature — good enough to
+// decide whether a *locally stored* token is stale; the backend still verifies for real.
+function getTokenExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(decodeURIComponent(escape(atob(base64))));
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenExpired(token: string): boolean {
+  const expMs = getTokenExpiryMs(token);
+  return expMs !== null && Date.now() >= expMs;
+}
+
+// Session storage (not localStorage) is deliberately per-tab: a brand-new tab, or a copied
+// URL pasted into one, starts with no session data at all, so it never inherits another
+// tab's login. Only navigation *from* an already-authenticated tab (same browsing context,
+// e.g. opening a link) keeps the session, matching how the rest of the app expects to work.
+function loadStoredToken(): string | null {
+  const token = sessionStorage.getItem('auth_token');
+  if (token && isTokenExpired(token)) {
+    sessionStorage.removeItem('auth_token');
+    sessionStorage.removeItem('auth_user');
+    return null;
+  }
+  return token;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
-    try { return JSON.parse(localStorage.getItem('auth_user') ?? 'null'); } catch { return null; }
+    if (!loadStoredToken()) return null;
+    try { return JSON.parse(sessionStorage.getItem('auth_user') ?? 'null'); } catch { return null; }
   });
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
+  const [token, setToken] = useState<string | null>(loadStoredToken);
   const logoutRef = useRef<() => void>(() => {});
   const warnTimerRef = useRef<number | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
@@ -61,16 +93,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(userData);
     setToken(userData.token);
     setAuthToken(userData.token);
-    localStorage.setItem('auth_token', userData.token);
-    localStorage.setItem('auth_user', JSON.stringify(userData));
+    sessionStorage.setItem('auth_token', userData.token);
+    sessionStorage.setItem('auth_user', JSON.stringify(userData));
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
     setAuthToken(null);
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    sessionStorage.removeItem('auth_token');
+    sessionStorage.removeItem('auth_user');
   };
 
   logoutRef.current = logout;
@@ -91,7 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearIdleTimers();
     warningOpenRef.current = false;
     logoutRef.current();
-    localStorage.setItem(LS_IDLE_LOGOUT, String(Date.now()));
     Swal.fire({ icon: 'info', title: 'Signed out', text: 'You were signed out due to inactivity.', confirmButtonText: 'OK' });
   };
 
@@ -149,7 +180,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const now = Date.now();
     if (!force && now - lastResetAtRef.current < ACTIVITY_THROTTLE_MS) return;
     lastResetAtRef.current = now;
-    localStorage.setItem(LS_LAST_ACTIVITY, String(now));
     scheduleIdleTimers();
   };
 
@@ -168,25 +198,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
-  // Cross-tab sync: activity in another tab keeps this tab's session alive too,
-  // and an idle logout in another tab logs this tab out immediately.
+  // Proactively catch a token that expired while this tab was open (or backgrounded) —
+  // don't wait for an API call to 401 before reacting.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === LS_IDLE_LOGOUT && e.newValue) {
-        if (warningOpenRef.current) { suppressNextDismissRef.current = true; Swal.close(); }
+    if (!token) return;
+    const checkExpiry = () => {
+      if (isTokenExpired(token)) {
         clearIdleTimers();
-        logoutRef.current();
-        return;
-      }
-      if (e.key === LS_LAST_ACTIVITY && e.newValue) {
         if (warningOpenRef.current) { suppressNextDismissRef.current = true; Swal.close(); }
-        lastResetAtRef.current = Date.now();
-        scheduleIdleTimers();
+        logoutRef.current();
+        Swal.fire({ icon: 'info', title: 'Session expired', text: 'Your session has expired. Please log in again.', confirmButtonText: 'OK' });
       }
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkExpiry(); };
+    const intervalId = window.setInterval(checkExpiry, EXPIRY_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [token]);
 
   const hasPermission = (required?: string | string[]) => {
     if (!required || (Array.isArray(required) && required.length === 0)) return true;
